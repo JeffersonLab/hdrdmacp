@@ -1,7 +1,7 @@
 
 import glob
 
-env = Environment()
+env = Environment(CXX='/apps/gcc/4.9.2/bin/g++')
 
 env.AppendUnique(CPPPATH=['.'])
 env.AppendUnique(CXXFLAGS=['--std=c++11', '-g'])

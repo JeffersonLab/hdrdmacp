@@ -2,6 +2,8 @@
 #include <hdRDMA.h>
 
 #include <unistd.h>
+#include <string.h>
+#include <strings.h>
 
 #include <iostream>
 #include <atomic>
@@ -93,7 +95,6 @@ hdRDMA::hdRDMA()
 
 	cout << "Device " << dev->name << " opened."
 		<< " num_comp_vectors=" << ctx->num_comp_vectors
-		<< " max_mr_size=" << attr.max_mr_size
 		<< endl;
 
 	// Allocate protection domain
@@ -132,8 +133,9 @@ hdRDMA::hdRDMA()
 		exit(-15);
 	}
 	
-	// Create Queue Pair
-	ibv_qp_init_attr qp_init_attr;
+	// Set up attributes for creating a QP. The attribute structure
+	// is part of the class and will be re-used as new QP's are 
+	// created (one for each connection).
 	bzero( &qp_init_attr, sizeof(qp_init_attr) );
 	qp_init_attr.send_cq = cq;
 	qp_init_attr.recv_cq = cq;
@@ -142,6 +144,31 @@ hdRDMA::hdRDMA()
 	qp_init_attr.cap.max_send_sge = 1;
 	qp_init_attr.cap.max_recv_sge = 1;
 	qp_init_attr.qp_type = IBV_QPT_RC;
+}
+
+//-------------------------------------------------------------
+// ~hdRDMA
+//-------------------------------------------------------------
+hdRDMA::~hdRDMA()
+{
+	// Close and free everything
+	if(           qp!=nullptr ) ibv_destroy_qp( qp );
+	if(           cq!=nullptr ) ibv_destroy_cq ( cq );
+	if( comp_channel!=nullptr ) ibv_destroy_comp_channel( comp_channel );
+	if(           mr!=nullptr ) ibv_dereg_mr( mr );
+	if(         buff!=nullptr ) delete[] buff;
+	if(           pd!=nullptr ) ibv_dealloc_pd( pd );
+	if(          ctx!=nullptr ) ibv_close_device( ctx );
+
+	if( server_sockfd ) shutdown( server_sockfd, SHUT_RDWR );
+}
+
+//-------------------------------------------------------------
+// CreateQP
+//-------------------------------------------------------------
+void hdRDMA::CreateQP(void)
+{
+	// Create Queue Pair
 	qp = ibv_create_qp( pd, &qp_init_attr );
 	if( !qp ){
 		cout << "ERROR: Unable to create QP! errno=" << errno << endl;
@@ -183,23 +210,6 @@ hdRDMA::hdRDMA()
 		}
 	}
 	
-}
-
-//-------------------------------------------------------------
-// ~hdRDMA
-//-------------------------------------------------------------
-hdRDMA::~hdRDMA()
-{
-	// Close and free everything
-	if(           qp!=nullptr ) ibv_destroy_qp( qp );
-	if(           cq!=nullptr ) ibv_destroy_cq ( cq );
-	if( comp_channel!=nullptr ) ibv_destroy_comp_channel( comp_channel );
-	if(           mr!=nullptr ) ibv_dereg_mr( mr );
-	if(         buff!=nullptr ) delete[] buff;
-	if(           pd!=nullptr ) ibv_dealloc_pd( pd );
-	if(          ctx!=nullptr ) ibv_close_device( ctx );
-
-	if( server_sockfd ) shutdown( server_sockfd, SHUT_RDWR );
 }
 
 //-------------------------------------------------------------
@@ -339,6 +349,17 @@ void hdRDMA::SendQPInfo( int sockfd )
 {
 	int n;
 	struct QPInfo tmp_qp_info;
+	
+	// Here we create a new QP to use with the remote peer. So as not to
+	// complicate things by trying to juggle multiple simultaneous connections,
+	// we block here if a QP already exists, assuming it will disappear soon.
+	if( qp!=nullptr ){
+		cout << "Waiting for existing QP to finish before accepting new connection ..." << endl;
+		while( (qp!=nullptr) && (!done) )std::this_thread::sleep_for(std::chrono::seconds(1));
+	}
+	
+	// Create a new QP to use for this connection
+	CreateQP();
 
 	tmp_qp_info.lid       = htons(qpinfo.lid);
 	tmp_qp_info.qp_num    = htonl(qpinfo.qp_num);
@@ -507,6 +528,7 @@ void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename)
 	
 	// Send buffers
 	auto t1 = high_resolution_clock::now();
+	auto t_last = t1;
 	uint64_t Ntransferred = 0;
 	uint64_t bytes_left = filesize;
 	uint32_t Noutstanding_writes = 0;
@@ -533,7 +555,7 @@ void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename)
 		uint64_t bytes_payload = 0;
 		if( bytes_available >= bytes_left ){
 			// last buffer of file
-			hi->flags |= 0x2;
+			hi->flags |= 0x2; // last buffer of file
 			bytes_payload = bytes_left;
 		}else{
 			// intermediate buffer of file
@@ -558,6 +580,15 @@ void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename)
 		Ntransferred += bytes_payload;
 		bytes_left -= bytes_payload;
 
+		// Report progress
+		auto t2 = high_resolution_clock::now();
+		duration<double> delta_t = duration_cast<duration<double>>(t2-t_last);
+		double rate_Gbps = (double)sge.length/delta_t.count()*8.0/1.0E9;
+		cout << "\r  queued " << Ntransferred/1000000 << "/" << filesize/1000000  << " MB (" << (100.0*Ntransferred/filesize) <<"%  - " << rate_Gbps << " Gbps)   ";
+		cout.flush();
+		
+		t_last = t2;
+
 		// If we've posted data using all available sections of the mr
 		// then we need to wait for one to finish so we can recycle it.
 		if( Noutstanding_writes>=num_buff_sections ){
@@ -567,12 +598,16 @@ void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename)
 		
 		if( hi->flags & 0x2 ) break; // this was last buffer of file
 	}
-	
+		
 	// Wait for final buffers to transfer
+	if( Noutstanding_writes != 0 ) cout << endl;
 	while( Noutstanding_writes > 0 ){
+		cout << "\r  waiting for final " << Noutstanding_writes << " transfers to complete ...";
+		cout .flush();
 		PollCQ();
 		Noutstanding_writes--;
 	}
+	cout << endl;
 
 	// Calculate total transfer rate and report.
 	auto t2 = high_resolution_clock::now();
@@ -581,10 +616,9 @@ void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename)
 	double rate_io_Gbps = (double)Ntransferred/delta_t_io*8.0/1.0E9;
 	double rate_ib_Gbps = (double)Ntransferred/(delta_t.count()-delta_t_io)*8.0/1.0E9;
 	
-	cout << "Transferred " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_Gbps << " Gbps)" << endl;
-	cout << "I/O rate reading from file: " << delta_t_io << " sec  (" << rate_io_Gbps << " Gbps)" << endl;
-	cout << "IB rate sending file: " << delta_t.count()-delta_t_io << " sec  (" << rate_ib_Gbps << " Gbps)" << endl;
-
+	cout << "  Transferred " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_Gbps << " Gbps)" << endl;
+	cout << "  I/O rate reading from file: " << delta_t_io << " sec  (" << rate_io_Gbps << " Gbps)" << endl;
+	cout << "  IB rate sending file: " << delta_t.count()-delta_t_io << " sec  (" << rate_ib_Gbps << " Gbps) - n.b. don't take this seriously!" << endl;
 }
 
 //-------------------------------------------------------------
@@ -619,6 +653,11 @@ void hdRDMA::SendBuffer(uint8_t *buff, uint32_t buff_len)
 //-------------------------------------------------------------
 void hdRDMA::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 {
+	static auto t1 = high_resolution_clock::now(); // n.b. overwritten when new file buffer received
+	static auto t_last = t1;
+	static double delta_t_io = 0.0;
+	static uint64_t Ntransferred = 0; // accumulates for file excluding first buffer
+
 	HeaderInfo *hi = (HeaderInfo*)buff;
 	if( hi->buff_type == 1 ){
 		// Buffer holds file information
@@ -633,6 +672,11 @@ void hdRDMA::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 			cout << "Receiving file: " << ofilename << endl;
 			ofs = new std::ofstream( ofilename.c_str() );
 			ofilesize = 0;
+
+			t1 = high_resolution_clock::now();
+			t_last = t1; // used for intermediate rate calculations
+			delta_t_io = 0.0;
+			Ntransferred = 0;
 		}
 
 		if( !ofs ){
@@ -643,18 +687,52 @@ void hdRDMA::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 		// Write buffer payload to file
 		auto data = &buff[hi->header_len];
 		auto data_len = buff_len - hi->header_len;
+		auto t_io_start = high_resolution_clock::now();
 		ofs->write( (const char*)data, data_len );
+		auto t_io_end = high_resolution_clock::now();
+		duration<double> duration_io = duration_cast<duration<double>>(t_io_end-t_io_start);
+		delta_t_io += duration_io.count();
 		ofilesize += data_len;
+		if( (hi->flags&0x1) == 0 ) Ntransferred += data_len; // exclude first buffer where we don't have timing info
 		
 		// If last buffer for file then close it and print stats
+		// NOTE: we use this as a flag that this connection is
+		// finished and so free the QP and set up to allow another
+		// connection.
 		if( hi->flags & 0x2 ){
+			if( t_last != t1 ) cout << endl; // print carriage return if we printed any intermediate progress
+			cout << "  Received last buffer. Closing file ..." << endl;
 			if( ofs ){
+				auto t_io_start = high_resolution_clock::now();
 				ofs->close();
+				auto t_io_end = high_resolution_clock::now();
+				duration<double> duration_io = duration_cast<duration<double>>(t_io_end-t_io_start);
+				delta_t_io += duration_io.count();
 				delete ofs;
 				ofs = nullptr;
 			}
 			Npeers--; // assume remote peer is done sending data
-			cout << "Closed file " << ofilename << " with " << ofilesize/1000000 << " MB" << endl;
+			if( qp!=nullptr ) ibv_destroy_qp( qp );
+			qp = nullptr;
+			cout << "  Closed file " << ofilename << " with " << ofilesize/1000000 << " MB" << endl;
+			auto t2 = high_resolution_clock::now();
+			duration<double> delta_t = duration_cast<duration<double>>(t2-t1);
+			double rate_Gbps = (double)Ntransferred/delta_t.count()*8.0/1.0E9;
+			double rate_io_Gbps = (double)ofilesize/delta_t_io*8.0/1.0E9;
+
+			cout << "  Transferred the last " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_Gbps << " Gbps)" << endl;
+			cout << "  I/O rate writing to file: " << delta_t_io << " sec  (" << rate_io_Gbps << " Gbps)" << endl;
+			cout << "-----------------------------------------------------------" << endl;
+		}else{
+		
+			// Report progress
+			auto t2 = high_resolution_clock::now();
+			duration<double> delta_t = duration_cast<duration<double>>(t2-t_last);
+			double rate_Gbps = (double)buff_len/delta_t.count()*8.0/1.0E9;
+			cout << "\r  received " << buff_len/1000000  << " MB (" << Ntransferred/1000000  << " MB total) - " << rate_Gbps << " Gbps  ";
+			cout.flush();
+
+			t_last = t2;
 		}
 	}
 }
@@ -664,7 +742,7 @@ void hdRDMA::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 //-------------------------------------------------------------
 void hdRDMA::PollCQ(void)
 {
-	cout << "Polling for WR completion ...." << endl;
+//	cout << "Polling for WR completion ...." << endl;
 	
 	int num_wc = 1;
 	struct ibv_wc wc;
@@ -680,18 +758,19 @@ void hdRDMA::PollCQ(void)
 		} 
 		
 		// Work completed!
-		cout << "Work Request completion received!" << endl;
+//		cout << "Work Request completion received!" << endl;
 		if( wc.status != IBV_WC_SUCCESS ){
 			cout << "ERROR: Status of WC not zero (" << wc.status << ")" << endl;
 			return;
 		}
 		
 		switch( wc.opcode ){
-			case IBV_WC_SEND: cout << "opcode: IBV_WC_SEND" << endl;
+			case IBV_WC_SEND:
+//				cout << "opcode: IBV_WC_SEND" << endl;
 				return; // (allow another wr to be sent)
 				break;
 			case IBV_WC_RECV:
-				cout << "opcode: IBV_WC_RECV (" << wc.byte_len/1000000 << " Mbytes)" << endl;
+//				cout << "opcode: IBV_WC_RECV (" << wc.byte_len/1000000 << " Mbytes)" << endl;
 				ReceiveBuffer( &buff[wc.wr_id*buff_section_len], wc.byte_len);
 				break;
 			default: cout << "opcode: other" << endl; break;
@@ -704,20 +783,22 @@ void hdRDMA::PollCQ(void)
 			cout << "ERROR: Bad id in wc (" << id << ") expected it to be < " << num_buff_sections << endl;
 			exit(-30);
 		}else if(wc.opcode==IBV_WC_RECV) {
-			cout << "re-posting receive request " << id << endl;
-			struct ibv_recv_wr wr;
-			struct ibv_sge sge;
-			bzero( &wr, sizeof(wr));
-			bzero( &sge, sizeof(sge));
-			wr.wr_id = id;
-			wr.sg_list = &sge;
-			wr.num_sge = 1;
-			sge.addr = (uintptr_t)&buff[id*buff_section_len];
-			sge.length = buff_section_len;
-			sge.lkey = mr->lkey;
-			auto ret = ibv_post_recv( qp, &wr, &bad_wr);
-			if( ret != 0 ){
-				cout << "ERROR: ibv_post_recv returned non zero value (" << ret << ")" << endl;
+			if( qp != nullptr ){ // n.b. qp may be deleted in ReceiveBuffer
+//				cout << "re-posting receive request " << id << endl;
+				struct ibv_recv_wr wr;
+				struct ibv_sge sge;
+				bzero( &wr, sizeof(wr));
+				bzero( &sge, sizeof(sge));
+				wr.wr_id = id;
+				wr.sg_list = &sge;
+				wr.num_sge = 1;
+				sge.addr = (uintptr_t)&buff[id*buff_section_len];
+				sge.length = buff_section_len;
+				sge.lkey = mr->lkey;
+				auto ret = ibv_post_recv( qp, &wr, &bad_wr);
+				if( ret != 0 ){
+					cout << "ERROR: ibv_post_recv returned non zero value (" << ret << ")" << endl;
+				}
 			}
 		}
 	}

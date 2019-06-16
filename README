@@ -1,0 +1,70 @@
+
+6/16/2019  D. Lawrence
+
+The hdrdmacp utility was written to test the speed at 
+which a file may be transferred via RDMA over the 
+IB network in the Hall-D counting house. It only runs
+on RHEL7 computers with Mellanox driver 4.3-3.0.2 or
+later. (At least, that is what is installed on the
+machines where this actually worked.)
+
+To use it, you must run one instance on the receiving
+computer using the "-s" flag to indicate it is in
+"server" mode.
+
+> hdrdma -s 
+
+
+Then, on the machine with the file you wish to transfer
+run it with scp style syntax like this:
+
+> hdrdmacp src_file host:dst_file
+
+n.b. unlike scp, this does not support copying from the
+server to the client so only the second argument may
+contain a host name and a colon(:).
+
+
+NOTES:
+===========================================================
+
+1. Transfers are made in 1GB chunks. Instantaneous rates are
+reported based on each of these chunks. The final rates posted
+at the end of the transfer are calculated from total bytes
+transferred and total time.
+
+2. The reported transfer rates are measured on each end
+using only the information available on that end so they
+may not agree completely. Especially because the transfers
+are done asynchronously with the first 4 being posted quickly
+on the send side. It then has to wait for a buffer to be freed
+before posting another.
+
+3. The 4 mentioned in 2. above comes from only allocating a
+4GB block of memory to handle transfers. One could change
+this though it is a hard-coded number so the program would need
+to be recompiled.
+
+4. Writing to spinning disk will dominate the transfer time.
+It will generally appear faster at the beginning while data
+is written to cache and then slower when it needs to start 
+flushing to the actual hardware.
+
+5. When testing on gluondaqbuff, the program appeared to stall
+completely at the end. This turned out to be due to it mounting
+gluonwork1 via the 1Gbps link. The entire 20GB file was cached
+and the only time the slowdown was observed was when the file
+was being closed and the data written to disk over the slow
+network connection. BEWARE!
+
+6. One can write to the file "/dev/null" to test speeds with
+no hardware on the writing side.
+
+7. Using a RAM disk is slower than cached files which are also
+in RAM. The assumption is that the RAM disk driver is less efficient
+than the cache system. This also means you need to be careful when
+testing since repeatedly sending the same file without clearing
+the system cache will ended up measuring cache speeds regardless
+of whether the file is being read from RAM disk or hard disk or
+SSD. 
+

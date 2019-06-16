@@ -29,6 +29,7 @@ class hdRDMA{
 		
 		         hdRDMA();
 		         ~hdRDMA();
+		    void CreateQP(void);
 		    void Listen(int port);
 		    void StopListening(void);
 		    void Connect(std::string host, int port);
@@ -47,6 +48,7 @@ class hdRDMA{
 		struct ibv_context *ctx = nullptr;
 		struct ibv_device_attr attr;
 		struct ibv_port_attr port_attr;
+		struct ibv_qp_init_attr qp_init_attr;
 		ibv_pd *pd = nullptr;
 		uint32_t buff_len = 0;
 		uint8_t *buff = nullptr;

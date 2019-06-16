@@ -41,20 +41,6 @@ int main(int narg, char *argv[])
 		hdrdma.Listen( HDRDMA_LOCAL_PORT );
 
 		while( true ){
-
-// 			// Wait for at least one peer to be established.
-// 			for(int Nwaits=0; Nwaits<HDRDMA_CONNECTION_TIMEOUT; Nwaits++){
-// 				if( hdrdma.GetNpeers() ) break;
-// 				if( Nwaits==0 ) cout << "waiting for peer to connect ";
-// 				cout << "."; cout.flush();
-// 				sleep(1);
-// 			}
-// 			cout << endl;
-// 			if( hdrdma.GetNpeers()==0 ){
-// 				cout << "Timeout waiting for peers to connect!" << endl;
-// 				return -1;
-// 			}
-// 			
 			
 			hdrdma.PollCQ();
 
