@@ -587,7 +587,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename)
 		uint64_t bytes_payload = 0;
 		if( bytes_available >= bytes_left ){
 			// last buffer of file
-			hi->flags |= 0x2; // last buffer of file
+			hi->flags |= 0x2 | 0x4; // last buffer of file
 			bytes_payload = bytes_left;
 		}else{
 			// intermediate buffer of file
