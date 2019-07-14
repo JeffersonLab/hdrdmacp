@@ -11,8 +11,8 @@ using namespace std;
 bool HDRDMA_IS_SERVER = false;
 bool HDRDMA_IS_CLIENT = false;
 
-int HDRDMA_LOCAL_PORT  = 12345;
-int HDRDMA_REMOTE_PORT = 12345;
+int HDRDMA_LOCAL_PORT  = 10470;
+int HDRDMA_REMOTE_PORT = 10470;
 std::string HDRDMA_REMOTE_ADDR = "gluon47.jlab.org";
 int HDRDMA_CONNECTION_TIMEOUT = 10; // seconds
 string HDRDMA_SRCFILENAME = "";
@@ -42,8 +42,9 @@ int main(int narg, char *argv[])
 
 		while( true ){
 			
-			hdrdma.PollCQ();
-
+			hdrdma.Poll();
+			
+			std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
 		}
 
 		// Stop server from listening (if one is)
