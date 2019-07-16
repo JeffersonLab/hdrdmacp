@@ -5,6 +5,7 @@
 #include <string>
 #include <list>
 #include <deque>
+#include <atomic>
 
 #include <sys/socket.h>
 #include <netdb.h>
@@ -39,10 +40,10 @@ class hdRDMA{
 		struct ibv_device_attr attr;
 		struct ibv_port_attr port_attr;
 		ibv_pd *pd = nullptr;
-		uint32_t buff_len = 0;
+		uint64_t buff_len = 0;
 		uint8_t *buff = nullptr;
-		uint32_t num_buff_sections = 0;
-		uint32_t buff_section_len = 0;
+		uint64_t num_buff_sections = 0;
+		uint64_t buff_section_len = 0;
 		struct ibv_mr *mr = nullptr;
 		std::deque<hdRDMAThread::bufferinfo> buffer_pool;
 		std::mutex buffer_pool_mutex;
@@ -54,5 +55,9 @@ class hdRDMA{
 		
 		hdRDMAThread *hdthr_client = nullptr;
 		std::map<std::thread*, hdRDMAThread*> threads;
+
+		std::atomic<uint64_t> Ntransferred;
+		uint64_t Ntransferred_last = 0;
+		std::chrono::high_resolution_clock::time_point t_last;
 };
 

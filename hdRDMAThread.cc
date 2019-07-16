@@ -185,7 +185,7 @@ void hdRDMAThread::ThreadRun(int sockfd)
 //-------------------------------------------------------------
 void hdRDMAThread::PostWR( int id )
 {
-cout << "Posting WR for id: " << id << endl;
+	//cout << "Posting WR for id: " << id << endl;
 
 	auto &buffer  = buffers[id];
 	auto buff     = std::get<0>(buffer);
@@ -380,6 +380,8 @@ int hdRDMAThread::SetToRTS(void)
 //-------------------------------------------------------------
 void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 {
+	hdrdma->Ntransferred += (uint64_t)buff_len;
+
 	auto hi = (HeaderInfo*)buff;
 	if( hi->buff_type == 1 ){
 		// Buffer holds file information
@@ -421,7 +423,6 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 		// If last buffer for file then close it and print stats
 		if( hi->flags & 0x2 ){
 			if( t_last != t1 ) cout << endl; // print carriage return if we printed any intermediate progress
-			cout << "  Received last buffer. Closing file ..." << endl;
 			if( ofs ){
 				auto t_io_start = high_resolution_clock::now();
 				ofs->close();
@@ -434,11 +435,11 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 			cout << "  Closed file " << ofilename << " with " << ofilesize/1000000 << " MB" << endl;
 			auto t2 = high_resolution_clock::now();
 			duration<double> delta_t = duration_cast<duration<double>>(t2-t1);
-			double rate_Gbps = (double)Ntransferred/delta_t.count()*8.0/1.0E9;
-			double rate_io_Gbps = (double)ofilesize/delta_t_io*8.0/1.0E9;
+			double rate_GBps = (double)Ntransferred/delta_t.count()/1.0E9;
+			double rate_io_GBps = (double)ofilesize/delta_t_io/1.0E9;
 
-			cout << "  Transferred the last " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_Gbps << " Gbps)" << endl;
-			cout << "  I/O rate writing to file: " << delta_t_io << " sec  (" << rate_io_Gbps << " Gbps)" << endl;
+			cout << "  Transferred the last " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_GBps << " GB/s)" << endl;
+			cout << "  I/O rate writing to file: " << delta_t_io << " sec  (" << rate_io_GBps << " GB/s)" << endl;
 			cout << "-----------------------------------------------------------" << endl;
 			
 			// Tell ThreadRun to stop
@@ -446,12 +447,12 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 
 		}else{
 		
-			// Report progress
+			// Report progress (n.b. this is now reported from hdrdma::Poll() )
 			auto t2 = high_resolution_clock::now();
-			duration<double> delta_t = duration_cast<duration<double>>(t2-t_last);
-			double rate_Gbps = (double)buff_len/delta_t.count()*8.0/1.0E9;
-			cout << "\r  received " << buff_len/1000000  << " MB (" << Ntransferred/1000000  << " MB total) - " << rate_Gbps << " Gbps  ";
-			cout.flush();
+			//duration<double> delta_t = duration_cast<duration<double>>(t2-t_last);
+			//double rate_Gbps = (double)buff_len/delta_t.count()*8.0/1.0E9;
+			//cout << "\r  received " << buff_len/1000000  << " MB (" << Ntransferred/1000000  << " MB total) - " << rate_Gbps << " Gbps  ";
+			//cout.flush();
 
 			t_last = t2;
 		}
@@ -505,6 +506,10 @@ void hdRDMAThread::ClientConnect( int sockfd )
 		ss << "ERROR: Unable to create Completion Queue! errno=" << errno;
 		throw Exception(ss.str());
 	}
+	
+	// Set the socket to timeout if unable to read in 10 seconds
+	struct timeval tv ={10, 0};
+	setsockopt( sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 	
 	// Read first 3 bytes from TCP socket to make sure the server is able to
 	// send us QPInfo.

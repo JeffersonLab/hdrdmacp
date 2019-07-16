@@ -14,6 +14,10 @@ using std::cout;
 using std::cerr;
 using std::endl;
 using namespace std::chrono;
+using std::chrono::duration;
+using std::chrono::duration_cast;
+using std::chrono::high_resolution_clock;
+
 
 //-------------------------------------------------------------
 // hdRDMA
@@ -152,6 +156,9 @@ hdRDMA::hdRDMA()
 		buffer_pool.push_back( bi );
 	}
 	cout << "Created " << buffer_pool.size() << " buffers of " << buff_section_len/1000000 << "MB (" << buff_len/1000000000 << "GB total)" << endl;
+
+	Ntransferred = 0;
+	t_last = high_resolution_clock::now();
 }
 
 //-------------------------------------------------------------
@@ -212,7 +219,6 @@ void hdRDMA::Listen(int port)
 			socklen_t peer_addr_len = sizeof(struct sockaddr_in);
 			peer_sockfd = accept(server_sockfd, (struct sockaddr *)&peer_addr, &peer_addr_len);
 			if( peer_sockfd > 0 ){
-				cout << "Connected!" <<endl;
 				cout << "Connection from " << inet_ntoa(peer_addr.sin_addr) << endl;
 				
 				// Create a new thread to handle this connection
@@ -223,9 +229,11 @@ void hdRDMA::Listen(int port)
 
 			}else{
 				cout << "Failed connection!" <<endl;
-				break;
+				//break;
 			}
 		} // !done
+		
+		cout << "TCP server stopped." << endl;
 	
 	}); 
 	
@@ -370,6 +378,19 @@ void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename)
 //-------------------------------------------------------------
 void hdRDMA::Poll(void)
 {
+	auto t_now = high_resolution_clock::now();
+	duration<double> delta_t = duration_cast<duration<double>>(t_now - t_last);
+	double t_diff = delta_t.count();
+	if( t_diff >=10.0 ){
+		
+		auto Ndiff = Ntransferred - Ntransferred_last;
+		double rate_GB_per_sec = (double)Ndiff/t_diff/1.0E9;
+		cout << "===  " << rate_GB_per_sec << " GB/s    --  received " << Ndiff/1000000000 << "GB in last " << t_diff << "sec" << endl;
+		
+		t_last = t_now;
+		Ntransferred_last = Ntransferred;
+	}
+
 	// Look for stopped threads and free their resources
 	for( auto t : threads ){
 		if( t.second->stopped ){
