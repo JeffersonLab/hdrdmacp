@@ -133,7 +133,7 @@ hdRDMA::hdRDMA()
 	// We will split this one memory region among multiple receive requests
 	// n.b. initial tests failed on transfer for buffers larger than 1GB
 	uint64_t buff_len_GB = 8;
-	num_buff_sections = 16;
+	num_buff_sections = 32;
 	buff_section_len = (buff_len_GB*1000000000)/(uint64_t)num_buff_sections;
 	buff_len = num_buff_sections*buff_section_len;
 	buff = new uint8_t[buff_len];
@@ -156,6 +156,16 @@ hdRDMA::hdRDMA()
 		buffer_pool.push_back( bi );
 	}
 	cout << "Created " << buffer_pool.size() << " buffers of " << buff_section_len/1000000 << "MB (" << buff_len/1000000000 << "GB total)" << endl;
+
+	// Create thread to listen for async ibv events
+	new std::thread( [&](){
+		while( !done ){
+			struct ibv_async_event async_event;
+			auto ret = ibv_get_async_event( ctx, &async_event);
+			cout << "+++ RDMA async event: type=" << async_event.event_type << "  ret=" << ret << endl;
+			ibv_ack_async_event( &async_event );
+		}
+	});
 
 	Ntransferred = 0;
 	t_last = high_resolution_clock::now();
@@ -219,16 +229,17 @@ void hdRDMA::Listen(int port)
 			socklen_t peer_addr_len = sizeof(struct sockaddr_in);
 			peer_sockfd = accept(server_sockfd, (struct sockaddr *)&peer_addr, &peer_addr_len);
 			if( peer_sockfd > 0 ){
-				cout << "Connection from " << inet_ntoa(peer_addr.sin_addr) << endl;
+//				cout << "Connection from " << inet_ntoa(peer_addr.sin_addr) << endl;
 				
 				// Create a new thread to handle this connection
 				auto hdthr = new hdRDMAThread( this );
 				auto thr = new std::thread( &hdRDMAThread::ThreadRun, hdthr, peer_sockfd );
+				std::lock_guard<std::mutex> lck( threads_mtx );
 				threads[ thr ] = hdthr;
 				Nconnections++;
 
 			}else{
-				cout << "Failed connection!" <<endl;
+				cout << "Failed connection!  errno=" << errno <<endl;
 				//break;
 			}
 		} // !done
@@ -335,7 +346,7 @@ void hdRDMA::GetBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers, int Nre
 {
 	std::lock_guard<std::mutex> grd( buffer_pool_mutex );
 
-cout << "buffer_pool.size()="<<buffer_pool.size() << "  Nrequested=" << Nrequested << endl;
+//cout << "buffer_pool.size()="<<buffer_pool.size() << "  Nrequested=" << Nrequested << endl;
 	
 	for( int i=buffers.size(); i<Nrequested; i++){
 		if( buffer_pool.empty() ) break;
@@ -357,7 +368,7 @@ void hdRDMA::ReturnBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers )
 //-------------------------------------------------------------
 // SendFile
 //-------------------------------------------------------------
-void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename)
+void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum)
 {
 	// This just calls the SendFile method of the client hdRDMAThread
 
@@ -366,7 +377,7 @@ void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename)
 		return;
 	}
 	
-	hdthr_client->SendFile( srcfilename, dstfilename );
+	hdthr_client->SendFile( srcfilename, dstfilename, delete_after_send, calculate_checksum);
 
 }
 
@@ -392,6 +403,7 @@ void hdRDMA::Poll(void)
 	}
 
 	// Look for stopped threads and free their resources
+	std::lock_guard<std::mutex> lck( threads_mtx );
 	for( auto t : threads ){
 		if( t.second->stopped ){
 			t.first->join();

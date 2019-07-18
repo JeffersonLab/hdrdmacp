@@ -57,7 +57,7 @@ class hdRDMAThread{
 		int SetToRTS(void);
 		void ReceiveBuffer(uint8_t *buff, uint32_t buff_len);
 		void ClientConnect( int sockfd );
-		void SendFile(std::string srcfilename, std::string dstfilename);
+		void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false);
 		void PollCQ(void);
 		
 		bool stop    = false; // Flag so thread can be told to stop
@@ -77,6 +77,8 @@ class hdRDMAThread{
 		std::ofstream *ofs = nullptr;
 		std::string ofilename;
 		uint64_t ofilesize = 0;
+		uint32_t crcsum;
+		bool calculate_checksum = false;
 		
 		std::chrono::high_resolution_clock::time_point t1;
 		std::chrono::high_resolution_clock::time_point t_last;

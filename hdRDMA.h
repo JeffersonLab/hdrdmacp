@@ -6,6 +6,7 @@
 #include <list>
 #include <deque>
 #include <atomic>
+#include <mutex>
 
 #include <sys/socket.h>
 #include <netdb.h>
@@ -30,7 +31,7 @@ class hdRDMA{
 		uint32_t GetNpeers(void);
 		    void GetBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers, int Nrequested=4 );
 		    void ReturnBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers );
-		    void SendFile(std::string srcfilename, std::string dstfilename);
+		    void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false);
 		    void Poll(void);
 
 		
@@ -55,6 +56,7 @@ class hdRDMA{
 		
 		hdRDMAThread *hdthr_client = nullptr;
 		std::map<std::thread*, hdRDMAThread*> threads;
+		std::mutex threads_mtx;
 
 		std::atomic<uint64_t> Ntransferred;
 		uint64_t Ntransferred_last = 0;

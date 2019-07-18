@@ -4,6 +4,8 @@
 #include <iostream>
 #include <strings.h>
 
+#include <zlib.h>
+
 #include "hdRDMA.h"
 
 
@@ -52,10 +54,21 @@ hdRDMAThread::hdRDMAThread(hdRDMA *hdrdma)
 //-----------------------------------------
 hdRDMAThread::~hdRDMAThread()
 {
+	// Put QP insto RESET state so it releases all outstanding work requests
+	if( qp!=nullptr ){
+		struct ibv_qp_attr qp_attr;
+		bzero( &qp_attr, sizeof(qp_attr) );		
+		qp_attr.qp_state = IBV_QPS_RESET;
+		ibv_modify_qp (qp, &qp_attr, IBV_QP_STATE);
+	}
+
 	// Delete all of our allocated objects
+	// n.b. order here matters! If the qp is destroyed after the
+	// comp_channel it will leave open a file descriptor pointing
+	// to [infinibandevent] that we have no way of closing!
+	if(           qp!=nullptr ) ibv_destroy_qp( qp );
 	if(           cq!=nullptr ) ibv_destroy_cq ( cq );
 	if( comp_channel!=nullptr ) ibv_destroy_comp_channel( comp_channel );
-	if(           qp!=nullptr ) ibv_destroy_qp( qp );
 	if(          ofs!=nullptr ) delete ofs;
 
 	// Return MR buffers to pool
@@ -134,6 +147,7 @@ void hdRDMAThread::ThreadRun(int sockfd)
 	// remote peer declaring the connection is closing.
 	int num_wc = 1;
 	struct ibv_wc wc;
+	auto t_last_received = high_resolution_clock::now(); // time we last received a wc
 	while( !stop ){
 	
 		// Check to see if a work completion notification has come in
@@ -144,6 +158,16 @@ void hdRDMAThread::ThreadRun(int sockfd)
 		}
 		if( n == 0 ){
 			std::this_thread::sleep_for(std::chrono::microseconds(1));
+
+			// Timeout if nothing recieved for more than 30 seconds
+			auto t_now = high_resolution_clock::now();
+			duration<double> duration_since_receive = duration_cast<duration<double>>(t_now - t_last_received);
+			auto delta_t = duration_since_receive.count();
+			if( delta_t > 30.0 ){
+				cout << "TIMEOUT: no RDMA buffers received in more than 30 secs. Closing connection." << endl;
+				stop = true;
+			}
+
 			continue;
 		} 
 		
@@ -169,6 +193,7 @@ void hdRDMAThread::ThreadRun(int sockfd)
 		auto buff     = std::get<0>(buffer);
 		auto buff_len = std::get<1>(buffer);
 		ReceiveBuffer( buff, wc.byte_len ); //n.b. do NOT use buff_len here!
+		t_last_received = high_resolution_clock::now();
 
 		// Re-post the receive request
 		PostWR( id );
@@ -250,8 +275,8 @@ void hdRDMAThread::ExchangeQPInfo( int sockfd )
 	remote_qpinfo.lid       = ntohs(tmp_qp_info.lid);
 	remote_qpinfo.qp_num    = ntohl(tmp_qp_info.qp_num);
     
-	cout << "local    lid: " << qpinfo.lid << "  qp_num: " << qpinfo.qp_num << endl;
-	cout << "remote   lid: " << remote_qpinfo.lid << "  qp_num: " << remote_qpinfo.qp_num << endl;
+//	cout << "local    lid: " << qpinfo.lid << "  qp_num: " << qpinfo.qp_num << endl;
+//	cout << "remote   lid: " << remote_qpinfo.lid << "  qp_num: " << remote_qpinfo.qp_num << endl;
 	
 	// Set QP state to RTS
 	auto ret = SetToRTS();
@@ -386,17 +411,18 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 	if( hi->buff_type == 1 ){
 		// Buffer holds file information
 		if( hi->flags & 0x1 ){
-			if( ofs ) {
+			if( ofs != nullptr ) {
 				cout << "ERROR: Received new file buffer while file " << ofilename << " already open!" << endl;
 				ofs->close();
 				delete ofs;
 				ofs = nullptr;
 			}
-			
 			ofilename = (char*)&hi->payload;
 			cout << "Receiving file: " << ofilename << endl;
 			ofs = new std::ofstream( ofilename.c_str() );
 			ofilesize = 0;
+			crcsum = adler32( 0L, Z_NULL, 0 );
+			calculate_checksum = ((hi->flags & 0x8) == 0x8); // optionally calculate checksum
 
 			t1 = high_resolution_clock::now();
 			t_last = t1; // used for intermediate rate calculations
@@ -412,6 +438,7 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 		// Write buffer payload to file
 		auto data = &buff[hi->header_len];
 		auto data_len = buff_len - hi->header_len;
+		if( calculate_checksum ) crcsum = adler32( crcsum, data, data_len );
 		auto t_io_start = high_resolution_clock::now();
 		ofs->write( (const char*)data, data_len );
 		auto t_io_end = high_resolution_clock::now();
@@ -429,17 +456,19 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 				auto t_io_end = high_resolution_clock::now();
 				duration<double> duration_io = duration_cast<duration<double>>(t_io_end-t_io_start);
 				delta_t_io += duration_io.count();
+				ofs->close();
 				delete ofs;
 				ofs = nullptr;
 			}
-			cout << "  Closed file " << ofilename << " with " << ofilesize/1000000 << " MB" << endl;
 			auto t2 = high_resolution_clock::now();
 			duration<double> delta_t = duration_cast<duration<double>>(t2-t1);
 			double rate_GBps = (double)Ntransferred/delta_t.count()/1.0E9;
 			double rate_io_GBps = (double)ofilesize/delta_t_io/1.0E9;
 
+			cout << "  Closed file " << ofilename << " with " << ofilesize/1000000 << " MB" << endl;
 			cout << "  Transferred the last " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_GBps << " GB/s)" << endl;
 			cout << "  I/O rate writing to file: " << delta_t_io << " sec  (" << rate_io_GBps << " GB/s)" << endl;
+			if( calculate_checksum ) cout << "  checksum: " << std::hex << crcsum << std::dec << endl;
 			cout << "-----------------------------------------------------------" << endl;
 			
 			// Tell ThreadRun to stop
@@ -531,7 +560,7 @@ void hdRDMAThread::ClientConnect( int sockfd )
 //-------------------------------------------------------------
 // SendFile
 //-------------------------------------------------------------
-void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename)
+void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum)
 {
 	// Open local file
 	std::ifstream ifs(srcfilename.c_str());
@@ -546,7 +575,8 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename)
 	ifs.seekg(0, ifs.beg);
 	double filesize_GB = (double)filesize*1.0E-9;
 	
-	cout << "Sending file: " << srcfilename << "->" << dstfilename << "   (" << filesize_GB << " GB)" << endl;
+	std::string mess = delete_after_send ? " - will be deleted after send":"";
+	cout << "Sending file: " << srcfilename << "->" << dstfilename << "   (" << filesize_GB << " GB)" << mess << endl;
 	
 	struct ibv_send_wr wr, *bad_wr = nullptr;
 	struct ibv_sge sge;
@@ -561,6 +591,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename)
 	sge.lkey = hdrdma->mr->lkey;
 	
 	// Send buffers
+	crcsum = adler32( 0L, Z_NULL, 0 );
 	t1 = high_resolution_clock::now();
 	t_last = t1;
 	uint64_t Ntransferred = 0;
@@ -582,6 +613,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename)
 		if( i==0 ){
 			hi->header_len = 256;
 			hi->flags |= 0x1; // first buffer of file
+			if( calculate_checksum ) hi->flags |= 0x8; // tell remote server to calculate checksum
 			sprintf( (char*)&hi->payload, dstfilename.c_str() );
 		}else{
 			hi->header_len = sizeof(*hi) - sizeof(hi->payload);
@@ -592,21 +624,24 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename)
 		uint64_t bytes_payload = 0;
 		if( bytes_available >= bytes_left ){
 			// last buffer of file
-			hi->flags |= 0x2 | 0x4; // last buffer of file
+			hi->flags |= 0x2 | 0x4; // 0x2=last buffer of file  0x4=last file (i.e. close connection)
 			bytes_payload = bytes_left;
 		}else{
 			// intermediate buffer of file
 			bytes_payload = bytes_available;
 		}
 		sge.length = hi->header_len + bytes_payload;
-cout << "Sending " << sge.length/1000000 << "MB ..." << endl;
-
+		
 		// Read next block of data directly into mr memory
+		auto payload_ptr = &((char*)sge.addr)[hi->header_len];
 		auto t_io_start = high_resolution_clock::now();
-		ifs.read( &((char*)sge.addr)[hi->header_len], bytes_payload );
+		ifs.read( payload_ptr, bytes_payload );
 		auto t_io_end = high_resolution_clock::now();
 		duration<double> duration_io = duration_cast<duration<double>>(t_io_end-t_io_start);
 		delta_t_io += duration_io.count();
+
+		// Optionally calculate cehcksum
+		if( calculate_checksum ) crcsum = adler32( crcsum, (uint8_t*)payload_ptr, bytes_payload );
 		
 		// Post write
 		auto ret = ibv_post_send( qp, &wr, &bad_wr );
@@ -622,7 +657,7 @@ cout << "Sending " << sge.length/1000000 << "MB ..." << endl;
 		auto t2 = high_resolution_clock::now();
 		duration<double> delta_t = duration_cast<duration<double>>(t2-t_last);
 		double rate_Gbps = (double)sge.length/delta_t.count()*8.0/1.0E9;
-		cout << "\r  queued " << Ntransferred/1000000 << "/" << filesize/1000000  << " MB (" << (100.0*Ntransferred/filesize) <<"%  - " << rate_Gbps << " Gbps)   ";
+		cout << "\r  queued " << sge.length/1000000 << "MB (" << Ntransferred/1000000 << "/" << filesize/1000000  << " MB -- " << (100.0*Ntransferred/filesize) <<"%  - " << rate_Gbps << " Gbps)   ";
 		cout.flush();
 		
 		t_last = t2;
@@ -656,7 +691,13 @@ cout << "Sending " << sge.length/1000000 << "MB ..." << endl;
 	
 	cout << "  Transferred " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_Gbps << " Gbps)" << endl;
 	cout << "  I/O rate reading from file: " << delta_t_io << " sec  (" << rate_io_Gbps << " Gbps)" << endl;
-	cout << "  IB rate sending file: " << delta_t.count()-delta_t_io << " sec  (" << rate_ib_Gbps << " Gbps) - n.b. don't take this seriously!" << endl;
+	if( calculate_checksum ) cout << "  checksum: " << std::hex << crcsum << std::dec << endl;
+	//cout << "  IB rate sending file: " << delta_t.count()-delta_t_io << " sec  (" << rate_ib_Gbps << " Gbps) - n.b. don't take this seriously!" << endl;
+
+	if( delete_after_send ){
+		unlink( srcfilename.c_str() );
+		cout <<"  Deleted src file: " << srcfilename << endl;
+	}
 }
 
 //-------------------------------------------------------------

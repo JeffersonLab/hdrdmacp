@@ -17,6 +17,8 @@ std::string HDRDMA_REMOTE_ADDR = "gluon47.jlab.org";
 int HDRDMA_CONNECTION_TIMEOUT = 10; // seconds
 string HDRDMA_SRCFILENAME = "";
 std::string HDRDMA_DSTFILENAME = "";
+bool HDRDMA_DELETE_AFTER_SEND = false;
+bool HDRDMA_CALCULATE_CHECKSUM = false;
 
 void ParseCommandLineArguments( int narg, char *argv[] );
 
@@ -59,7 +61,7 @@ int main(int narg, char *argv[])
 	// then it will exit the program with an error message.
 	if( HDRDMA_IS_CLIENT ){
 		hdrdma.Connect( HDRDMA_REMOTE_ADDR, HDRDMA_REMOTE_PORT );
-		hdrdma.SendFile( HDRDMA_SRCFILENAME, HDRDMA_DSTFILENAME );
+		hdrdma.SendFile( HDRDMA_SRCFILENAME, HDRDMA_DSTFILENAME, HDRDMA_DELETE_AFTER_SEND, HDRDMA_CALCULATE_CHECKSUM );
 	}
 	
 	return 0;
@@ -84,6 +86,10 @@ void ParseCommandLineArguments( int narg, char *argv[] )
 		}else if( arg=="-sp"){
 			HDRDMA_LOCAL_PORT = atoi( next.c_str() );
 			i++;
+		}else if( arg=="-d"){
+			HDRDMA_DELETE_AFTER_SEND = true;
+		}else if( arg=="-c"){
+			HDRDMA_CALCULATE_CHECKSUM = true;
 		}else if( arg[0]!='-'){
 			vfnames.push_back( arg.c_str() );
 			HDRDMA_IS_CLIENT = true;
