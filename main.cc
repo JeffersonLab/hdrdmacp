@@ -124,7 +124,7 @@ void ParseCommandLineArguments( int narg, char *argv[] )
 			HDRDMA_DSTFILENAME = vfnames[1].substr(pos+1);
 		}else{
 			// port is specfied in dest string
-			auto portstr = vfnames[1].substr(pos+1, pos2-pos1-1);
+			auto portstr = vfnames[1].substr(pos+1, pos2-pos-1);
 			HDRDMA_REMOTE_PORT = atoi( portstr.c_str() );
 			HDRDMA_DSTFILENAME = vfnames[1].substr(pos2+1);
 		}
