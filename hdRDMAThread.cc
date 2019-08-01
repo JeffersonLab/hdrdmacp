@@ -630,7 +630,6 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 			// intermediate buffer of file
 			bytes_payload = bytes_available;
 		}
-		sge.length = hi->header_len + bytes_payload;
 		
 		// Read next block of data directly into mr memory
 		auto payload_ptr = &((char*)sge.addr)[hi->header_len];
@@ -639,6 +638,9 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 		auto t_io_end = high_resolution_clock::now();
 		duration<double> duration_io = duration_cast<duration<double>>(t_io_end-t_io_start);
 		delta_t_io += duration_io.count();
+
+		// Total length of buffer we are actually sending
+		sge.length = hi->header_len + bytes_payload;
 
 		// Optionally calculate cehcksum
 		if( calculate_checksum ) crcsum = adler32( crcsum, (uint8_t*)payload_ptr, bytes_payload );
