@@ -191,7 +191,7 @@ void hdRDMAThread::ThreadRun(int sockfd)
 		}
 		auto &buffer  = buffers[id];
 		auto buff     = std::get<0>(buffer);
-		auto buff_len = std::get<1>(buffer);
+		//auto buff_len = std::get<1>(buffer);
 		ReceiveBuffer( buff, wc.byte_len ); //n.b. do NOT use buff_len here!
 		t_last_received = high_resolution_clock::now();
 
@@ -250,7 +250,7 @@ void hdRDMAThread::ExchangeQPInfo( int sockfd )
 	CreateQP();
 	
 	// Create a work receive request for each MR buffer we have
-	for( int id=0; id<buffers.size(); id++ ) PostWR( id );
+	for( uint32_t id=0; id<buffers.size(); id++ ) PostWR( id );
 
 	tmp_qp_info.lid       = htons(qpinfo.lid);
 	tmp_qp_info.qp_num    = htonl(qpinfo.qp_num);
@@ -689,7 +689,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 	duration<double> delta_t = duration_cast<duration<double>>(t2-t1);
 	double rate_Gbps = (double)Ntransferred/delta_t.count()*8.0/1.0E9;
 	double rate_io_Gbps = (double)Ntransferred/delta_t_io*8.0/1.0E9;
-	double rate_ib_Gbps = (double)Ntransferred/(delta_t.count()-delta_t_io)*8.0/1.0E9;
+	//double rate_ib_Gbps = (double)Ntransferred/(delta_t.count()-delta_t_io)*8.0/1.0E9;
 	
 	cout << "  Transferred " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_Gbps << " Gbps)" << endl;
 	cout << "  I/O rate reading from file: " << delta_t_io << " sec  (" << rate_io_Gbps << " Gbps)" << endl;

@@ -48,6 +48,9 @@ hdRDMA::hdRDMA()
 			case IBV_EXP_TRANSPORT_SCIF:
 				transport_type = "SCIF";
 				break;
+			default:
+				transport_type = "UNKNOWN";
+				break;
 		}
 		
 		// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -281,7 +284,7 @@ void hdRDMA::Connect(std::string host, int port)
 	struct addrinfo hints;
 	struct addrinfo *result;
 	char addrstr[100];
-	void *ptr;
+	void *ptr = nullptr;
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_socktype = SOCK_STREAM;
