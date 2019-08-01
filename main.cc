@@ -21,6 +21,7 @@ bool HDRDMA_DELETE_AFTER_SEND = false;
 bool HDRDMA_CALCULATE_CHECKSUM = false;
 
 void ParseCommandLineArguments( int narg, char *argv[] );
+void Usage(void);
 
 
 //-------------------------------------------------------------
@@ -78,7 +79,10 @@ void ParseCommandLineArguments( int narg, char *argv[] )
 		string arg( argv[i] );
 		string next = (i+1)<narg ? argv[i+1]:"";
 		
-		if( arg=="-s" || arg=="--server" ){
+		if( arg=="-h" || arg=="--help" ){
+			Usage();
+			exit(0);
+		}else if( arg=="-s" || arg=="--server" ){
 			HDRDMA_IS_SERVER = true;
 		}else if( arg=="-p"){
 			HDRDMA_REMOTE_PORT = atoi( next.c_str() );
@@ -100,18 +104,84 @@ void ParseCommandLineArguments( int narg, char *argv[] )
 		// We are the client (i.e. we are sending the file)
 		if( vfnames.size() != 2 ){
 			cout << "ERROR: exactly 2 arguments needed: src dst" << endl;
+			Usage();
 			exit( -50 );
 		}
 		
 		HDRDMA_SRCFILENAME = vfnames[0];
+		
+		// Extract destination host, port, and filename from dest
 		auto pos = vfnames[1].find(":");
 		if( pos == string::npos ){
-			cout << "ERROR: destination must be in the form host:dest_filename (you entered " << vfnames[1] << ")" << endl;
+			cout << "ERROR: destination must be in the form host:[port:]dest_filename (you entered " << vfnames[1] << ")" << endl;
 			exit(-51);
 		}
-		HDRDMA_DSTFILENAME = vfnames[1].substr(pos+1);
 		HDRDMA_REMOTE_ADDR = vfnames[1].substr(0, pos);
+		
+		auto pos2 = vfnames[1].find(":", pos+1);
+		if( pos2 == string::npos ){
+			// port not specfied in dest string
+			HDRDMA_DSTFILENAME = vfnames[1].substr(pos+1);
+		}else{
+			// port is specfied in dest string
+			auto portstr = vfnames[1].substr(pos+1, pos2-pos1-1);
+			HDRDMA_REMOTE_PORT = atoi( portstr.c_str() );
+			HDRDMA_DSTFILENAME = vfnames[1].substr(pos2+1);
+		}
 	}
 }
 
-
+//-------------------------------------------------------------
+// Usage
+//-------------------------------------------------------------
+void Usage(void)
+{
+	cout << endl;
+	cout << "Hall-D RDMA copy server/client" <<endl;
+	cout << endl;
+	cout << "Usage:" <<endl;
+	cout << endl;
+	cout << "   hdrdma [options] srcfile host:[port:]destfile" << endl;
+	cout << "   hdrdma -s" << endl;
+	cout << endl;
+	cout << "This program can be used as both the server and client to copy a" << endl;
+	cout << "file from the local host to a remote host using RDMA over IB." << endl;
+	cout << "This currently does not support copying files from the remote" << endl;
+	cout << "server back to the client. It also only supports copying a single" << endl;
+	cout << "file per connection at the moment. In server mode it can accept" << endl;
+	cout << "multiple simultaneous connections and so can receive any number" << endl;
+	cout << "of files. In client mode however, only a single file can be" << endl;
+	cout << "tranferred. Run multiple clients to transfer multiple files." << endl;
+	cout << endl;
+	cout << "Note: all of the options below are for client mode except for \"-s\"" << endl;
+	cout << "and \"-sp\"." << endl;
+	cout << endl;
+	cout << " options:" <<endl;
+	cout << "    -c         calculate checksum (adler32 currently only prints)" << endl;
+	cout << "    -d         delete source file upon successful transfer." << endl;
+	cout << "    -h         print this usage statement." << endl;
+	cout << "    -p port    set remote port to connect to (can also be given in dest name)" << endl;
+	cout << "    -s         server mode" << endl;
+	cout << "    -sp        server port to listen on (default is 10470)" << endl;
+	cout << endl;
+	cout << "NOTES:" << endl;
+	cout << "  1. The full filename on the destination must be specfied, not just" << endl;
+	cout << "     a directory. This is not checked for automatically so the user" <<endl;
+	cout << "     must take care." << endl;
+	cout << endl;
+	cout << "  2. The remote host and port refer to a TCP connection that is" << endl;
+	cout << "     first made to exchange the RDMA connection info. The file is" << endl;
+	cout << "     then transferred via RDMA." << endl;
+	cout << endl;
+	cout << "  3. The destination port may be speficied either via the -p option" << endl;
+	cout << "     or as part of the destination argument. e.g." << endl;
+	cout << "        my.remote.host:12345:/path/to/my/destfilename" << endl;
+	cout << "     if both are given then the one given in the destination argument" << endl;
+	cout << "     is used." << endl;
+	cout << endl;
+	cout << "Example:" << endl;
+	cout << "  On destination host run:  hdrdma -s" << endl;
+	cout << endl;
+	cout << "  On source host run:  hdrdma /path/to/my/srcfile my.remote.host:/path/to/my/destfile" << endl;
+	cout << endl;
+}
