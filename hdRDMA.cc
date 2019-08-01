@@ -149,6 +149,7 @@ hdRDMA::hdRDMA()
 	mr = ibv_reg_mr( pd, buff, buff_len, access);
 	if( !mr ){
 		cout << "ERROR: Unable to register memory region! errno=" << errno << endl;
+		cout << "       (Please see usage statement for a possible work around)" << endl;
 		exit( -14 );
 	}
 	

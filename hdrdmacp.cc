@@ -179,6 +179,14 @@ void Usage(void)
 	cout << "     if both are given then the one given in the destination argument" << endl;
 	cout << "     is used." << endl;
 	cout << endl;
+	cout << "  4. If you see an error about \"Unable to register memory region!\" then" << endl;
+	cout << "     this may be due to the maximum locked memory size. Check this by" <<endl;
+	cout << "     running \"limit\" if using tcsh and looking for \"memorylocked\". If" << endl;
+	cout << "     using bash, then run \"ulimit -a\" and look for \"max locked memory\"." << endl;
+	cout << "     These should be set to \"unlimited\". On some of our systems this defaults" << endl;
+	cout << "     to 64kB and would not honor global settings. A wierd work around was to" << endl;
+	cout << "     do a \"su $USER\" which set it to \"unlimited\". (I do not understand why.)" << endl;
+	cout << endl;
 	cout << "Example:" << endl;
 	cout << "  On destination host run:  hdrdmacp -s" << endl;
 	cout << endl;
