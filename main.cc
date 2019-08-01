@@ -137,12 +137,12 @@ void ParseCommandLineArguments( int narg, char *argv[] )
 void Usage(void)
 {
 	cout << endl;
-	cout << "Hall-D RDMA copy server/client" <<endl;
+	cout << "Hall-D RDMA file copy server/client" <<endl;
 	cout << endl;
 	cout << "Usage:" <<endl;
 	cout << endl;
-	cout << "   hdrdma [options] srcfile host:[port:]destfile" << endl;
-	cout << "   hdrdma -s" << endl;
+	cout << "   hdrdmacp [options] srcfile host:[port:]destfile" << endl;
+	cout << "   hdrdmacp -s" << endl;
 	cout << endl;
 	cout << "This program can be used as both the server and client to copy a" << endl;
 	cout << "file from the local host to a remote host using RDMA over IB." << endl;
@@ -180,8 +180,8 @@ void Usage(void)
 	cout << "     is used." << endl;
 	cout << endl;
 	cout << "Example:" << endl;
-	cout << "  On destination host run:  hdrdma -s" << endl;
+	cout << "  On destination host run:  hdrdmacp -s" << endl;
 	cout << endl;
-	cout << "  On source host run:  hdrdma /path/to/my/srcfile my.remote.host:/path/to/my/destfile" << endl;
+	cout << "  On source host run:  hdrdmacp /path/to/my/srcfile my.remote.host:/path/to/my/destfile" << endl;
 	cout << endl;
 }

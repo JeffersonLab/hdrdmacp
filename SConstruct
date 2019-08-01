@@ -7,5 +7,5 @@ env.AppendUnique(CPPPATH=['.'])
 env.AppendUnique(CXXFLAGS=['--std=c++11', '-g'])
 env.AppendUnique(LIBS=['ibverbs','z'])
 
-env.Program('hdrdma', glob.glob('*.cc'))
+env.Program('hdrdmacp', glob.glob('*.cc'))
 
