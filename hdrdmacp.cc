@@ -19,6 +19,8 @@ string HDRDMA_SRCFILENAME = "";
 std::string HDRDMA_DSTFILENAME = "";
 bool HDRDMA_DELETE_AFTER_SEND = false;
 bool HDRDMA_CALCULATE_CHECKSUM = false;
+uint64_t HDRDMA_BUFF_LEN_GB = 0;       // defaults differ for server and client modes
+uint64_t HDRDMA_NUM_BUFF_SECTIONS = 0; // so these are set in ParseCommandLineArguments
 
 void ParseCommandLineArguments( int narg, char *argv[] );
 void Usage(void);
@@ -94,6 +96,12 @@ void ParseCommandLineArguments( int narg, char *argv[] )
 			HDRDMA_DELETE_AFTER_SEND = true;
 		}else if( arg=="-c"){
 			HDRDMA_CALCULATE_CHECKSUM = true;
+		}else if( arg=="-m"){
+			HDRDMA_BUFF_LEN_GB = atoi( next.c_str() );
+			i++;
+		}else if( arg=="-n"){
+			HDRDMA_NUM_BUFF_SECTIONS = atoi( next.c_str() );
+			i++;
 		}else if( arg[0]!='-'){
 			vfnames.push_back( arg.c_str() );
 			HDRDMA_IS_CLIENT = true;
@@ -120,9 +128,17 @@ void ParseCommandLineArguments( int narg, char *argv[] )
 		
 		auto pos2 = vfnames[1].find(":", pos+1);
 		if( pos2 == string::npos ){
+			// Set memory region size for client mode. Use default if user didn't specify
+			if( HDRDMA_BUFF_LEN_GB == 0 ) HDRDMA_BUFF_LEN_GB = 1;
+			if( HDRDMA_NUM_BUFF_SECTIONS == 0 ) HDRDMA_NUM_BUFF_SECTIONS = 4;
+
 			// port not specfied in dest string
 			HDRDMA_DSTFILENAME = vfnames[1].substr(pos+1);
 		}else{
+			// Set memory region size for server mode. Use default if user didn't specify
+			if( HDRDMA_BUFF_LEN_GB == 0 ) HDRDMA_BUFF_LEN_GB = 8;
+			if( HDRDMA_NUM_BUFF_SECTIONS == 0 ) HDRDMA_NUM_BUFF_SECTIONS = 32;
+		
 			// port is specfied in dest string
 			auto portstr = vfnames[1].substr(pos+1, pos2-pos-1);
 			HDRDMA_REMOTE_PORT = atoi( portstr.c_str() );
@@ -153,16 +169,20 @@ void Usage(void)
 	cout << "of files. In client mode however, only a single file can be" << endl;
 	cout << "tranferred. Run multiple clients to transfer multiple files." << endl;
 	cout << endl;
-	cout << "Note: all of the options below are for client mode except for \"-s\"" << endl;
-	cout << "and \"-sp\"." << endl;
+	cout << "Note: In the options below: " << endl;
+	cout << "    CMO=Client Mode Only" << endl;
+	cout << "    SMO=Server Mode Only" << endl;
 	cout << endl;
 	cout << " options:" <<endl;
-	cout << "    -c         calculate checksum (adler32 currently only prints)" << endl;
-	cout << "    -d         delete source file upon successful transfer." << endl;
+	cout << "    -c         calculate checksum (adler32 currently only prints) (CMO)" << endl;
+	cout << "    -d         delete source file upon successful transfer (CMO)" << endl;
 	cout << "    -h         print this usage statement." << endl;
-	cout << "    -p port    set remote port to connect to (can also be given in dest name)" << endl;
-	cout << "    -s         server mode" << endl;
-	cout << "    -sp        server port to listen on (default is 10470)" << endl;
+	cout << "    -m  GB     total memory to allocate (def. 8GB for server, 1GB for client)" << endl;
+	cout << "    -n  Nbuffs number of buffers to break the allocated memory into. This" << endl;
+	cout << "               will determine the size of RDMA transfer requests." << endl;
+	cout << "    -p port    set remote port to connect to (can also be given in dest name) (CMO)" << endl;
+	cout << "    -s         server mode (SMO)" << endl;
+	cout << "    -sp        server port to listen on (default is 10470) (SMO)" << endl;
 	cout << endl;
 	cout << "NOTES:" << endl;
 	cout << "  1. The full filename on the destination must be specfied, not just" << endl;

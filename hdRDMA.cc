@@ -18,6 +18,9 @@ using std::chrono::duration;
 using std::chrono::duration_cast;
 using std::chrono::high_resolution_clock;
 
+extern uint64_t HDRDMA_BUFF_LEN_GB;
+extern uint64_t HDRDMA_NUM_BUFF_SECTIONS;
+
 
 //-------------------------------------------------------------
 // hdRDMA
@@ -132,11 +135,11 @@ hdRDMA::hdRDMA()
 		exit(-12);
 	}
 	
-	// Allocate a 4GB buffer and create a memory region pointing to it.
+	// Allocate a large buffer and create a memory region pointing to it.
 	// We will split this one memory region among multiple receive requests
 	// n.b. initial tests failed on transfer for buffers larger than 1GB
-	uint64_t buff_len_GB = 8;
-	num_buff_sections = 32;
+	uint64_t buff_len_GB = HDRDMA_BUFF_LEN_GB;
+	num_buff_sections = HDRDMA_NUM_BUFF_SECTIONS;
 	buff_section_len = (buff_len_GB*1000000000)/(uint64_t)num_buff_sections;
 	buff_len = num_buff_sections*buff_section_len;
 	buff = new uint8_t[buff_len];
