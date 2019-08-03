@@ -2,6 +2,7 @@
 
 #include <sstream>
 #include <iostream>
+#include <atomic>
 #include <strings.h>
 
 #include <zlib.h>
@@ -12,10 +13,12 @@
 using std::cout;
 using std::cerr;
 using std::endl;
+using std::atomic;
 using std::chrono::duration;
 using std::chrono::duration_cast;
 using std::chrono::high_resolution_clock;
 
+extern atomic<uint64_t> BYTES_RECEIVED_TOT;
 
 //
 // Some notes on server mode:
@@ -192,6 +195,7 @@ void hdRDMAThread::ThreadRun(int sockfd)
 		auto &buffer  = buffers[id];
 		auto buff     = std::get<0>(buffer);
 		//auto buff_len = std::get<1>(buffer);
+		BYTES_RECEIVED_TOT += wc.byte_len;
 		ReceiveBuffer( buff, wc.byte_len ); //n.b. do NOT use buff_len here!
 		t_last_received = high_resolution_clock::now();
 
@@ -465,11 +469,11 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 			double rate_GBps = (double)Ntransferred/delta_t.count()/1.0E9;
 			double rate_io_GBps = (double)ofilesize/delta_t_io/1.0E9;
 
-			cout << "  Closed file " << ofilename << " with " << ofilesize/1000000 << " MB" << endl;
-			cout << "  Transferred the last " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_GBps << " GB/s)" << endl;
-			cout << "  I/O rate writing to file: " << delta_t_io << " sec  (" << rate_io_GBps << " GB/s)" << endl;
+// 		cout << "  Closed file " << ofilename << " with " << ofilesize/1000000 << " MB" << endl;
+// 		cout << "  Transferred the last " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_GBps << " GB/s)" << endl;
+// 		cout << "  I/O rate writing to file: " << delta_t_io << " sec  (" << rate_io_GBps << " GB/s)" << endl;
 			if( calculate_checksum ) cout << "  checksum: " << std::hex << crcsum << std::dec << endl;
-			cout << "-----------------------------------------------------------" << endl;
+//			cout << "-----------------------------------------------------------" << endl;
 			
 			// Tell ThreadRun to stop
 			stop = true;

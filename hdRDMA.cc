@@ -401,9 +401,9 @@ void hdRDMA::Poll(void)
 	double t_diff = delta_t.count();
 	if( t_diff >=10.0 ){
 		
-		auto Ndiff = Ntransferred - Ntransferred_last;
-		double rate_GB_per_sec = (double)Ndiff/t_diff/1.0E9;
-		cout << "===  " << rate_GB_per_sec << " GB/s    --  received " << Ndiff/1000000000 << "GB in last " << t_diff << "sec" << endl;
+		//auto Ndiff = Ntransferred - Ntransferred_last;
+		//double rate_GB_per_sec = (double)Ndiff/t_diff/1.0E9;
+		//cout << "===  " << rate_GB_per_sec << " GB/s    --  received " << Ndiff/1000000000 << "GB in last " << t_diff << "sec" << endl;
 		
 		t_last = t_now;
 		Ntransferred_last = Ntransferred;

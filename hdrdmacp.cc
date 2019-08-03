@@ -7,6 +7,9 @@
 #include <iostream>
 #include <vector>
 using namespace std;
+using std::chrono::steady_clock;
+using std::chrono::duration;
+using std::chrono::duration_cast;
 
 bool HDRDMA_IS_SERVER = false;
 bool HDRDMA_IS_CLIENT = false;
@@ -21,6 +24,8 @@ bool HDRDMA_DELETE_AFTER_SEND = false;
 bool HDRDMA_CALCULATE_CHECKSUM = false;
 uint64_t HDRDMA_BUFF_LEN_GB = 0;       // defaults differ for server and client modes
 uint64_t HDRDMA_NUM_BUFF_SECTIONS = 0; // so these are set in ParseCommandLineArguments
+
+atomic<uint64_t> BYTES_RECEIVED_TOT(0);
 
 void ParseCommandLineArguments( int narg, char *argv[] );
 void Usage(void);
@@ -45,10 +50,50 @@ int main(int narg, char *argv[])
 	if( HDRDMA_IS_SERVER ){
 		hdrdma.Listen( HDRDMA_LOCAL_PORT );
 
+		// We want to report 10sec, 1min, and 5min averages
+		auto t_last_10sec = steady_clock::now();
+		auto t_last_1min = t_last_10sec;
+		auto t_last_5min = t_last_10sec;
+		uint64_t last_bytes_received_10sec = BYTES_RECEIVED_TOT;
+		uint64_t last_bytes_received_1min  = BYTES_RECEIVED_TOT;
+		uint64_t last_bytes_received_5min  = BYTES_RECEIVED_TOT;
+
 		while( true ){
 			
 			hdrdma.Poll();
 			
+			auto now = steady_clock::now();
+			auto duration_10sec = duration_cast<std::chrono::seconds>(now - t_last_10sec);
+			auto duration_1min  = duration_cast<std::chrono::seconds>(now - t_last_1min);
+			auto duration_5min  = duration_cast<std::chrono::seconds>(now - t_last_5min);
+			auto delta_t_10sec  = duration_10sec.count();
+			auto delta_t_1min   = duration_1min.count();
+			auto delta_t_5min   = duration_5min.count();
+
+			if( delta_t_10sec >= 10.0 ){
+				double GB_received = (BYTES_RECEIVED_TOT - last_bytes_received_10sec)/1000000000;
+				double rate = GB_received/delta_t_10sec;
+				cout << "=== [10 sec avg.] " << rate << " GB/s  --  " << (double)BYTES_RECEIVED_TOT/1.0E12 << " TB total received" << endl;
+				t_last_10sec = now;
+				last_bytes_received_10sec = BYTES_RECEIVED_TOT;
+			}
+
+			if( delta_t_1min >= 60.0 ){
+				double GB_received = (BYTES_RECEIVED_TOT - last_bytes_received_1min)/1000000000;
+				double rate = GB_received/delta_t_1min;
+				cout << "=== [ 1 min avg.] " << rate << " GB/s" << endl;
+				t_last_1min = now;
+				last_bytes_received_1min = BYTES_RECEIVED_TOT;
+			}
+
+			if( delta_t_5min >= 300.0 ){
+				double GB_received = (BYTES_RECEIVED_TOT - last_bytes_received_5min)/1000000000;
+				double rate = GB_received/delta_t_5min;
+				cout << "=== [ 5 min avg.] " << rate << " GB/s" << endl;
+				t_last_5min = now;
+				last_bytes_received_5min = BYTES_RECEIVED_TOT;
+			}
+
 			std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
 		}
 
