@@ -20,8 +20,9 @@ std::string HDRDMA_REMOTE_ADDR = "gluon47.jlab.org";
 int HDRDMA_CONNECTION_TIMEOUT = 10; // seconds
 string HDRDMA_SRCFILENAME = "";
 std::string HDRDMA_DSTFILENAME = "";
-bool HDRDMA_DELETE_AFTER_SEND = false;
+bool HDRDMA_DELETE_AFTER_SEND  = false;
 bool HDRDMA_CALCULATE_CHECKSUM = false;
+bool HDRDMA_MAKE_PARENT_DIRS   = false;
 uint64_t HDRDMA_BUFF_LEN_GB = 0;       // defaults differ for server and client modes
 uint64_t HDRDMA_NUM_BUFF_SECTIONS = 0; // so these are set in ParseCommandLineArguments
 
@@ -109,7 +110,7 @@ int main(int narg, char *argv[])
 	// then it will exit the program with an error message.
 	if( HDRDMA_IS_CLIENT ){
 		hdrdma.Connect( HDRDMA_REMOTE_ADDR, HDRDMA_REMOTE_PORT );
-		hdrdma.SendFile( HDRDMA_SRCFILENAME, HDRDMA_DSTFILENAME, HDRDMA_DELETE_AFTER_SEND, HDRDMA_CALCULATE_CHECKSUM );
+		hdrdma.SendFile( HDRDMA_SRCFILENAME, HDRDMA_DSTFILENAME, HDRDMA_DELETE_AFTER_SEND, HDRDMA_CALCULATE_CHECKSUM, HDRDMA_MAKE_PARENT_DIRS );
 	}
 	
 	return 0;
@@ -141,6 +142,8 @@ void ParseCommandLineArguments( int narg, char *argv[] )
 			HDRDMA_DELETE_AFTER_SEND = true;
 		}else if( arg=="-c"){
 			HDRDMA_CALCULATE_CHECKSUM = true;
+		}else if( arg=="-P"){
+			HDRDMA_MAKE_PARENT_DIRS = true;
 		}else if( arg=="-m"){
 			HDRDMA_BUFF_LEN_GB = atoi( next.c_str() );
 			i++;
@@ -225,6 +228,7 @@ void Usage(void)
 	cout << "    -m  GB     total memory to allocate (def. 8GB for server, 1GB for client)" << endl;
 	cout << "    -n  Nbuffs number of buffers to break the allocated memory into. This" << endl;
 	cout << "               will determine the size of RDMA transfer requests." << endl;
+	cout << "    -P         make parent directory path on remote host if needed (CMO)" << endl;
 	cout << "    -p port    set remote port to connect to (can also be given in dest name) (CMO)" << endl;
 	cout << "    -s         server mode (SMO)" << endl;
 	cout << "    -sp        server port to listen on (default is 10470) (SMO)" << endl;
@@ -256,5 +260,9 @@ void Usage(void)
 	cout << "  On destination host run:  hdrdmacp -s" << endl;
 	cout << endl;
 	cout << "  On source host run:  hdrdmacp /path/to/my/srcfile my.remote.host:/path/to/my/destfile" << endl;
+	cout << endl;
+	cout << "Note that the above will fail if /path/to/my does not already exist on" << endl;
+	cout << "my.remote.host. If you add the -P argument then /path/to/my will be " << endl;
+	cout << "automatically create (if it doesn't already exist)." << endl;
 	cout << endl;
 }

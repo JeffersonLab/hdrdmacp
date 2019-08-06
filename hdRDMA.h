@@ -31,7 +31,7 @@ class hdRDMA{
 		uint32_t GetNpeers(void);
 		    void GetBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers, int Nrequested=4 );
 		    void ReturnBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers );
-		    void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false);
+		    void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false);
 		    void Poll(void);
 
 		

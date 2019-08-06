@@ -375,7 +375,7 @@ void hdRDMA::ReturnBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers )
 //-------------------------------------------------------------
 // SendFile
 //-------------------------------------------------------------
-void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum)
+void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
 {
 	// This just calls the SendFile method of the client hdRDMAThread
 
@@ -384,7 +384,7 @@ void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename, bool del
 		return;
 	}
 	
-	hdthr_client->SendFile( srcfilename, dstfilename, delete_after_send, calculate_checksum);
+	hdthr_client->SendFile( srcfilename, dstfilename, delete_after_send, calculate_checksum, makeparentdirs);
 
 }
 

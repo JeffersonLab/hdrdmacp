@@ -21,7 +21,15 @@ class hdRDMA;
 
 class hdRDMAThread{
 
-	public:	
+	public:
+	
+		enum{
+			HI_FIRST_BUFFER       = 0x01,
+			HI_LAST_BUFFER        = 0x02,
+			HI_LAST_FILE          = 0x04,
+			HI_CALCULATE_CHECKSUM = 0x08,
+			HI_MAKE_PARENT_DIRS   = 0x10
+		}HeaderInfoFlag_t;
 
 		// Header info sent as first bytes of data packed
 		struct HeaderInfo {
@@ -57,8 +65,9 @@ class hdRDMAThread{
 		int SetToRTS(void);
 		void ReceiveBuffer(uint8_t *buff, uint32_t buff_len);
 		void ClientConnect( int sockfd );
-		void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false);
+		void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false);
 		void PollCQ(void);
+		bool makePath( const std::string &path );
 		
 		bool stop    = false; // Flag so thread can be told to stop
 		bool stopped = false; // Flag so thread can declare it has stopped

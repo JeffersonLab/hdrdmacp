@@ -4,6 +4,8 @@
 #include <iostream>
 #include <atomic>
 #include <strings.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 #include <zlib.h>
 
@@ -414,7 +416,7 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 	auto hi = (HeaderInfo*)buff;
 	if( hi->buff_type == 1 ){
 		// Buffer holds file information
-		if( hi->flags & 0x1 ){
+		if( hi->flags & HI_FIRST_BUFFER ){
 			if( ofs != nullptr ) {
 				cout << "ERROR: Received new file buffer while file " << ofilename << " already open!" << endl;
 				ofs->close();
@@ -423,10 +425,17 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 			}
 			ofilename = (char*)&hi->payload;
 			cout << "Receiving file: " << ofilename << endl;
+			
+			// Create parent directory path if specified by remote sender
+			if( hi->flags & HI_MAKE_PARENT_DIRS ){
+				auto pos = ofilename.find_last_of('/');
+				if( pos != std::string::npos ) makePath( ofilename.substr(0, pos) );
+			}
+			
 			ofs = new std::ofstream( ofilename.c_str() );
 			ofilesize = 0;
 			crcsum = adler32( 0L, Z_NULL, 0 );
-			calculate_checksum = ((hi->flags & 0x8) == 0x8); // optionally calculate checksum
+			calculate_checksum = (hi->flags & HI_CALCULATE_CHECKSUM); // optionally calculate checksum
 
 			t1 = high_resolution_clock::now();
 			t_last = t1; // used for intermediate rate calculations
@@ -449,10 +458,10 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 		duration<double> duration_io = duration_cast<duration<double>>(t_io_end-t_io_start);
 		delta_t_io += duration_io.count();
 		ofilesize += data_len;
-		if( (hi->flags&0x1) == 0 ) Ntransferred += data_len; // exclude first buffer where we don't have timing info
+		if( (hi->flags & HI_FIRST_BUFFER) == 0 ) Ntransferred += data_len; // exclude first buffer where we don't have timing info
 		
 		// If last buffer for file then close it and print stats
-		if( hi->flags & 0x2 ){
+		if( hi->flags & HI_LAST_BUFFER ){
 			if( t_last != t1 ) cout << endl; // print carriage return if we printed any intermediate progress
 			if( ofs ){
 				auto t_io_start = high_resolution_clock::now();
@@ -464,11 +473,11 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 				delete ofs;
 				ofs = nullptr;
 			}
-			auto t2 = high_resolution_clock::now();
-			duration<double> delta_t = duration_cast<duration<double>>(t2-t1);
-			double rate_GBps = (double)Ntransferred/delta_t.count()/1.0E9;
-			double rate_io_GBps = (double)ofilesize/delta_t_io/1.0E9;
-
+//			auto t2 = high_resolution_clock::now();
+//			duration<double> delta_t = duration_cast<duration<double>>(t2-t1);
+//			double rate_GBps = (double)Ntransferred/delta_t.count()/1.0E9;
+//			double rate_io_GBps = (double)ofilesize/delta_t_io/1.0E9;
+//
 // 		cout << "  Closed file " << ofilename << " with " << ofilesize/1000000 << " MB" << endl;
 // 		cout << "  Transferred the last " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_GBps << " GB/s)" << endl;
 // 		cout << "  I/O rate writing to file: " << delta_t_io << " sec  (" << rate_io_GBps << " GB/s)" << endl;
@@ -492,7 +501,7 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 		
 		// Check if flag set indicating the remote side is finished with the connection.
 		// n.b. remote client can also send separate message with buff_type==2 for same effect.
-		if( hi->flags & 0x4 ){
+		if( hi->flags & HI_LAST_FILE ){
 			stop = true;
 		}
 		
@@ -564,7 +573,7 @@ void hdRDMAThread::ClientConnect( int sockfd )
 //-------------------------------------------------------------
 // SendFile
 //-------------------------------------------------------------
-void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum)
+void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
 {
 	// Open local file
 	std::ifstream ifs(srcfilename.c_str());
@@ -616,8 +625,9 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 		// Subsequent buffers don't.
 		if( i==0 ){
 			hi->header_len = 256;
-			hi->flags |= 0x1; // first buffer of file
-			if( calculate_checksum ) hi->flags |= 0x8; // tell remote server to calculate checksum
+			hi->flags |= HI_FIRST_BUFFER; // first buffer of file
+			if( calculate_checksum ) hi->flags |= HI_CALCULATE_CHECKSUM; // tell remote server to calculate checksum
+			if( makeparentdirs     ) hi->flags |= HI_MAKE_PARENT_DIRS;   // tell remote server to make directory path if needed
 			sprintf( (char*)&hi->payload, dstfilename.c_str() );
 		}else{
 			hi->header_len = sizeof(*hi) - sizeof(hi->payload);
@@ -628,7 +638,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 		uint64_t bytes_payload = 0;
 		if( bytes_available >= bytes_left ){
 			// last buffer of file
-			hi->flags |= 0x2 | 0x4; // 0x2=last buffer of file  0x4=last file (i.e. close connection)
+			hi->flags |= (HI_LAST_BUFFER | HI_LAST_FILE); // flag as last buffer and last file so connection is closed
 			bytes_payload = bytes_left;
 		}else{
 			// intermediate buffer of file
@@ -675,7 +685,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 			Noutstanding_writes--;
 		}
 		
-		if( hi->flags & 0x2 ) break; // this was last buffer of file
+		if( hi->flags & HI_LAST_BUFFER ) break; // this was last buffer of file
 	}
 		
 	// Wait for final buffers to transfer
@@ -734,6 +744,44 @@ void hdRDMAThread::PollCQ(void)
 		} 
 		
 		break;
+	}
+}
+
+
+//-------------------------------------------------------------
+// makePath
+//
+// Make all directories needed for a given path to exist
+//
+// (copied from SO question 675039 and streamlined for Linux only)
+//-------------------------------------------------------------
+bool hdRDMAThread::makePath( const std::string &path )
+{
+	mode_t mode = 0777;
+	int ret = mkdir( path.c_str(), mode );
+	if( ret == 0 ) return true;
+	
+	switch( errno ){
+		case ENOENT:
+			// parent didn't exist, try to create it
+			{
+				auto pos = path.find_last_of('/');
+				if( pos == std::string::npos ) return false;
+				if( !makePath( path.substr(0, pos) ) ) return false;
+			}
+			// now, try to create again
+			return 0 == mkdir( path.c_str(), mode );
+
+		case EEXIST:
+			// Path already exists! Verify it is actually a directory
+			{
+				struct stat info;
+				if( stat( path.c_str(), &info) != 0 ) return false;
+				return (info.st_mode & S_IFDIR) != 0;
+			}
+
+		default:
+			return false;
 	}
 }
 
