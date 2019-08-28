@@ -21,6 +21,7 @@ using std::chrono::duration_cast;
 using std::chrono::high_resolution_clock;
 
 extern atomic<uint64_t> BYTES_RECEIVED_TOT;
+extern std::string HDRDMA_REMOTE_ADDR;
 
 //
 // Some notes on server mode:
@@ -169,7 +170,8 @@ void hdRDMAThread::ThreadRun(int sockfd)
 			duration<double> duration_since_receive = duration_cast<duration<double>>(t_now - t_last_received);
 			auto delta_t = duration_since_receive.count();
 			if( delta_t > 30.0 ){
-				cout << "TIMEOUT: no RDMA buffers received in more than 30 secs. Closing connection." << endl;
+				cout << "TIMEOUT: no RDMA buffers received in more than 30 secs (" << delta_t << "). Closing connection." << endl;
+				cout << "         (filename=" << ofilename <<"  Ntransferred=" << Ntransferred << ")" << endl;
 				stop = true;
 			}
 
@@ -267,15 +269,17 @@ void hdRDMAThread::ExchangeQPInfo( int sockfd )
 	//------ Send QPInfo ---------
 	n = write(sockfd, (char *)&tmp_qp_info, sizeof(struct QPInfo));
 	if( n!= sizeof(struct QPInfo) ){
-		cout << "ERROR: Sending QPInfo! Tried sending " << sizeof(struct QPInfo) << " bytes but only " << n << " were sent!" << endl;
-		exit(-4);
+		std::stringstream ss;
+		ss << "ERROR: Sending QPInfo! Tried sending " << sizeof(struct QPInfo) << " bytes but only " << n << " were sent!";
+		throw Exception( ss.str() );
 	}
     
 	//------ Receive QPInfo ---------
 	n = read(sockfd, (char *)&tmp_qp_info, sizeof(struct QPInfo));
 	if( n!= sizeof(struct QPInfo) ){
-		cout << "ERROR: Sending QPInfo! Tried reading " << sizeof(struct QPInfo) << " bytes but only " << n << " were read!" << endl;
-		exit(-4);
+		std::stringstream ss;
+		ss << "ERROR: Sending QPInfo! Tried reading " << sizeof(struct QPInfo) << " bytes but only " << n << " were read!!";
+		throw Exception( ss.str() );
 	}
 
 	remote_qpinfo.lid       = ntohs(tmp_qp_info.lid);
@@ -427,6 +431,7 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 			cout << "Receiving file: " << ofilename << endl;
 			
 			// Create parent directory path if specified by remote sender
+			cout << "hi->flags: 0x" << std::hex << hi->flags << std::dec << endl;
 			if( hi->flags & HI_MAKE_PARENT_DIRS ){
 				auto pos = ofilename.find_last_of('/');
 				if( pos != std::string::npos ) makePath( ofilename.substr(0, pos) );
@@ -556,6 +561,7 @@ void hdRDMAThread::ClientConnect( int sockfd )
 	// Read first 3 bytes from TCP socket to make sure the server is able to
 	// send us QPInfo.
 	char str[256];
+	bzero(str, 256); // status code does not include terminating null
 	auto n = read(sockfd, str, 3);
 	if( n!= 3 ) throw Exception("ERROR: Unable to read 3 byte status code from TCP socket!" );
 
@@ -565,7 +571,7 @@ void hdRDMAThread::ClientConnect( int sockfd )
 		throw Exception( str );
 	}
 	
-	// Exchange QP info over TCP socket so we can transmit via RDMA
+	// Exchange QP info over TCP socket so we can transmit via RDMAcout << __FILE__ << ":" << __LINE__ << endl;
 	ExchangeQPInfo( sockfd );
 
 }
@@ -589,7 +595,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 	double filesize_GB = (double)filesize*1.0E-9;
 	
 	std::string mess = delete_after_send ? " - will be deleted after send":"";
-	cout << "Sending file: " << srcfilename << "->" << dstfilename << "   (" << filesize_GB << " GB)" << mess << endl;
+	cout << "Sending file: " << srcfilename << "-> (" << HDRDMA_REMOTE_ADDR << ":)" << dstfilename << "   (" << filesize_GB << " GB)" << mess << endl;
 	
 	struct ibv_send_wr wr, *bad_wr = nullptr;
 	struct ibv_sge sge;
@@ -704,9 +710,13 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 	double rate_Gbps = (double)Ntransferred/delta_t.count()*8.0/1.0E9;
 	double rate_io_Gbps = (double)Ntransferred/delta_t_io*8.0/1.0E9;
 	//double rate_ib_Gbps = (double)Ntransferred/(delta_t.count()-delta_t_io)*8.0/1.0E9;
-	
-	cout << "  Transferred " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_Gbps << " Gbps)" << endl;
-	cout << "  I/O rate reading from file: " << delta_t_io << " sec  (" << rate_io_Gbps << " Gbps)" << endl;
+	if( Ntransferred>2E8 ){
+		cout << "  Transferred " << ((double)Ntransferred*1.0E-9) << " GB in " << delta_t.count() << " sec  (" << rate_Gbps << " Gbps)" << endl;
+		cout << "  I/O rate reading from file: " << delta_t_io << " sec  (" << rate_io_Gbps << " Gbps)" << endl;
+	}else{
+		cout << "  Transferred " << ((double)Ntransferred*1.0E-6) << " MB in " << delta_t.count() << " sec  (" << rate_Gbps*1000.0 << " Mbps)" << endl;
+		cout << "  I/O rate reading from file: " << delta_t_io << " sec  (" << rate_io_Gbps*1000.0 << " Mbps)" << endl;
+	}	
 	if( calculate_checksum ) cout << "  checksum: " << std::hex << crcsum << std::dec << endl;
 	//cout << "  IB rate sending file: " << delta_t.count()-delta_t_io << " sec  (" << rate_ib_Gbps << " Gbps) - n.b. don't take this seriously!" << endl;
 
@@ -759,7 +769,10 @@ bool hdRDMAThread::makePath( const std::string &path )
 {
 	mode_t mode = 0777;
 	int ret = mkdir( path.c_str(), mode );
-	if( ret == 0 ) return true;
+	if( ret == 0 ) {
+		cout << "mkdir: " << path << endl;
+		return true;
+	}
 	
 	switch( errno ){
 		case ENOENT:
