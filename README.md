@@ -16,7 +16,8 @@ as the second:
 
 > hdrdmacp file.dat my.server.host:/path/to/dest/dir
 
-```notes:```
+notes:
+
 1. This only supports copying from the client node to the server node at the moment.
 It would be fairly straightforward to enhance it to allow copies in the other direction
 as well. Let me know if you would like to have that functionality.
@@ -38,6 +39,8 @@ program though, it is also easy to just build it via a single command as shown.
 > cd hdrdmacp
 
 > c++ -o hdrdmacp *.cc -libverbs -lz
+
+## Running
 
 Run the program with "--help" to get the help statement:
 
@@ -109,6 +112,5 @@ automatically create (if it doesn't already exist).
 </pre>
 
 
-## Running
 
 
