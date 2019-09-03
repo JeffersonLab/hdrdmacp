@@ -23,7 +23,7 @@ It would be fairly straightforward to enhance it to allow copies in the other di
 as well. Let me know if you would like to have that functionality.
 
 2. This currently requires the destination be a directory. Thus, one cannot give the 
-file different name at the destination than it is on the host. 
+file a different name at the destination than it is on the host. 
 
 3. This was written to run on some memory-heavy machines so the default buffer sizes
 are quite large. The may be changed with some command-line options (see below).
