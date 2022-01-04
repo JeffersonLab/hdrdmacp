@@ -19,6 +19,19 @@
 
 class hdRDMA;
 
+#ifdef __GNUC__
+#define PACK( __Declaration__ ) __Declaration__ __attribute__((__packed__))
+#endif
+
+#ifdef _MSC_VER
+#define PACK( __Declaration__ ) __pragma( pack(push, 1) ) __Declaration__ __pragma( pack(pop))
+#endif
+
+#ifdef __GNUC__
+typedef int SOCKET;
+#define closesocket close
+#endif
+
 class hdRDMAThread{
 
 	public:
@@ -32,18 +45,18 @@ class hdRDMAThread{
 		}HeaderInfoFlag_t;
 
 		// Header info sent as first bytes of data packed
-		struct HeaderInfo {
+		PACK(struct HeaderInfo {
 			uint32_t header_len;
 			uint16_t buff_type;
 			uint16_t flags; // bit 0=first, 1=last
 			uint32_t payload;
-		}__attribute__ ((packed));
+		});
 
 		// Hold info of queue pair on one side of connection
-		struct QPInfo {
+		PACK(struct QPInfo {
 			uint16_t lid;
 			uint32_t qp_num;
-		}__attribute__ ((packed));
+		});
 		
 		class Exception:public std::exception{
 			public:
@@ -58,13 +71,13 @@ class hdRDMAThread{
 		hdRDMAThread(hdRDMA *hdrdma);
 		~hdRDMAThread();
 		
-		void ThreadRun(int sockfd);
+		void ThreadRun(SOCKET sockfd);
 		void PostWR( int id ); // id= index to buffers
-		void ExchangeQPInfo( int sockfd );
+		void ExchangeQPInfo( SOCKET sockfd );
 		void CreateQP(void);
 		int SetToRTS(void);
 		void ReceiveBuffer(uint8_t *buff, uint32_t buff_len);
-		void ClientConnect( int sockfd );
+		void ClientConnect( SOCKET sockfd );
 		void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false);
 		void PollCQ(void);
 		bool makePath( const std::string &path );

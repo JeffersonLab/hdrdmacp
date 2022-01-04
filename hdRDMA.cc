@@ -3,7 +3,6 @@
 
 #include <unistd.h>
 #include <string.h>
-#include <strings.h>
 
 #include <iostream>
 #include <atomic>
@@ -48,9 +47,11 @@ hdRDMA::hdRDMA()
 			case IBV_TRANSPORT_IWARP:
 				transport_type = "IWARP";
 				break;
+#ifdef __GNUC__
 			case IBV_EXP_TRANSPORT_SCIF:
 				transport_type = "SCIF";
 				break;
+#endif
 			default:
 				transport_type = "UNKNOWN";
 				break;
@@ -87,7 +88,12 @@ hdRDMA::hdRDMA()
 	
 		cout << "   device " << i
 			<< " : " << devs[i]->name
+#ifdef __GNUC__
 			<< " : " << devs[i]->dev_name
+#endif
+#ifdef _MSC_VER
+			<< " : " << devs[i]->name
+#endif
 			<< " : " << transport_type
 			<< " : " << ibv_node_type_str(devs[i]->node_type)
 			<< " : Num. ports=" << Nports
@@ -113,7 +119,9 @@ hdRDMA::hdRDMA()
 	ibv_query_gid(ctx, port_num, index, &gid);
 
 	cout << "Device " << dev->name << " opened."
+#ifdef __GNUC__
 		<< " num_comp_vectors=" << ctx->num_comp_vectors
+#endif
 		<< endl;
 
 	// Print some of the port attributes
@@ -126,7 +134,9 @@ hdRDMA::hdRDMA()
 	cout << "    active_width: " << (uint64_t)port_attr.active_width << endl;
 	cout << "    active_speed: " << (uint64_t)port_attr.active_speed << endl;
 	cout << "      phys_state: " << (uint64_t)port_attr.phys_state << endl;
+#ifdef __GNUC__
 	cout << "      link_layer: " << (uint64_t)port_attr.link_layer << endl;
+#endif
 
 	// Allocate protection domain
 	pd = ibv_alloc_pd(ctx);
@@ -195,6 +205,10 @@ hdRDMA::~hdRDMA()
 	if(         buff!=nullptr ) delete[] buff;
 	if(           pd!=nullptr ) ibv_dealloc_pd( pd );
 	if(          ctx!=nullptr ) ibv_close_device( ctx );
+	
+#ifdef _MSC_VER
+#	define SHUT_RDWR SD_BOTH
+#endif
 
 	if( server_sockfd ) shutdown( server_sockfd, SHUT_RDWR );
 }
@@ -209,7 +223,7 @@ void hdRDMA::Listen(int port)
 {
 	// Create socket, bind it and put it into the listening state.	
 	struct sockaddr_in addr;
-	bzero( &addr, sizeof(addr) );
+	memset( &addr, 0, sizeof(addr) );
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	addr.sin_port = htons( port );
@@ -231,7 +245,7 @@ void hdRDMA::Listen(int port)
 		thread_started = true;
 		
 		while( !done ){
-			int peer_sockfd   = 0;
+			SOCKET peer_sockfd   = 0;
 			struct sockaddr_in peer_addr;
 			socklen_t peer_addr_len = sizeof(struct sockaddr_in);
 			peer_sockfd = accept(server_sockfd, (struct sockaddr *)&peer_addr, &peer_addr_len);
@@ -272,7 +286,7 @@ void hdRDMA::StopListening(void)
 		server_thread->join();
 		delete server_thread;
 		server_thread = nullptr;
-		if( server_sockfd ) close( server_sockfd );
+		if( server_sockfd ) closesocket( server_sockfd );
 		server_sockfd = 0;
 	}else{
 		cout << "Server not running." <<endl;
@@ -316,12 +330,12 @@ void hdRDMA::Connect(std::string host, int port)
 
 	// Create socket and connect it to remote host	
 	struct sockaddr_in addr;
-	bzero( &addr, sizeof(addr) );
+	memset( &addr, 0, sizeof(addr) );
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = inet_addr( addrstr );
 	addr.sin_port = htons( port );
 	
-	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	SOCKET sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	ret = connect( sockfd, (struct sockaddr*)&addr, sizeof(addr) );
 	if( ret != 0 ){
 		cout << "ERROR: connecting to server: " << host << " (" << inet_ntoa(addr.sin_addr) << ")" << endl;
@@ -343,7 +357,7 @@ void hdRDMA::Connect(std::string host, int port)
 //-------------------------------------------------------------
 uint32_t hdRDMA::GetNpeers(void)
 {
-	return threads.size();
+	return (uint32_t)threads.size();
 }
 
 //-------------------------------------------------------------
@@ -355,7 +369,7 @@ void hdRDMA::GetBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers, int Nre
 
 //cout << "buffer_pool.size()="<<buffer_pool.size() << "  Nrequested=" << Nrequested << endl;
 	
-	for( int i=buffers.size(); i<Nrequested; i++){
+	for( int i=(int)buffers.size(); i<Nrequested; i++){
 		if( buffer_pool.empty() ) break;
 		buffers.push_back( buffer_pool.back() );
 		buffer_pool.pop_back();

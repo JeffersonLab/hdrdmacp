@@ -12,12 +12,9 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 
-#include <zlib.h>
-
 #include <infiniband/verbs.h>
 
 #include <hdRDMAThread.h>
-
 
 class hdRDMA{
 	public:
@@ -50,7 +47,7 @@ class hdRDMA{
 		std::mutex buffer_pool_mutex;
 
 		bool done = false;
-		int server_sockfd = 0;
+		SOCKET server_sockfd = 0;
 		std::thread *server_thread = nullptr;
 		uint32_t Nconnections = 0;
 		
