@@ -1,17 +1,11 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.21)
 project (hdrdmacp)
 
-add_executable(hdrdmacp
-	hdRDMA.cc
-	hdRDMA.h
-	hdrdmacp.cc
-	hdRDMAThread.cc
-	hdRDMAThread.h
-)
-
+#
+# Pull submodules.
+#
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
-# Update submodules as needed
     option(GIT_SUBMODULE "Check submodules during build" ON)
     if(GIT_SUBMODULE)
         message(STATUS "Submodule update")
@@ -24,8 +18,31 @@ if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
     endif()
 endif()
 
-if(NOT EXISTS "${PROJECT_SOURCE_DIR}/modules/libwinibverbs/CMakeLists.txt")
-    message(FATAL_ERROR "The submodules were not downloaded! GIT_SUBMODULE was turned off or failed. Please update submodules and try again.")
-endif()
-
+#
+# Add submodules
+#
 add_subdirectory(modules/libwinibverbs)
+
+#
+# Thanks to a bug in CMake, we just manually pass ZLIB_LIBRARY and ZLIB_INCLUDE_DIRS
+#
+#find_library(ZLIB REQUIRED)
+message("ZLIB_LIBRARY: ${ZLIB_LIBRARY}")
+message("ZLIB_INCLUDE_DIRS: ${ZLIB_INCLUDE_DIRS}")
+
+add_executable(hdrdmacp
+	hdRDMA.cc
+	hdRDMA.h
+	hdrdmacp.cc
+	hdRDMAThread.cc
+	hdRDMAThread.h
+)
+add_dependencies(hdrdmacp winibverbs)
+target_compile_definitions(hdrdmacp PRIVATE _CRT_SECURE_NO_WARNINGS)
+target_link_libraries(hdrdmacp winibverbs ${ZLIB_LIBRARY})
+target_include_directories(hdrdmacp PRIVATE ${ZLIB_INCLUDE_DIRS})
+
+add_custom_command(TARGET hdrdmacp POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:hdrdmacp> $<TARGET_FILE_DIR:hdrdmacp>
+  COMMAND_EXPAND_LISTS
+)

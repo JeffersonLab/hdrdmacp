@@ -75,7 +75,7 @@ size_t recv64(SOCKET s, void *buffer, size_t sz, int flags)
 	{
 		bytes_to_read = (int)std::min<uint64_t>(sz, INT_MAX);
 
-		bytes_read = recv64(s, (char *)buffer, bytes_to_read, flags);
+		bytes_read = recv(s, (char *)buffer, bytes_to_read, flags);
 		if (bytes_read < 0)
 		{
 			break;

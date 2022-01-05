@@ -428,12 +428,16 @@ void hdRDMA::Poll(void)
 
 	// Look for stopped threads and free their resources
 	std::lock_guard<std::mutex> lck( threads_mtx );
+	std::vector<std::thread*> stopped;
 	for( auto t : threads ){
 		if( t.second->stopped ){
 			t.first->join();
 			delete t.second;
-			threads.erase( t.first );
+			stopped.push_back( t.first );
 		}
+	}
+	for (auto s : stopped) {
+		threads.erase(s);
 	}
 
 }
