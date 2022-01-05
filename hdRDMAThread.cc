@@ -19,7 +19,6 @@ using std::chrono::duration;
 using std::chrono::duration_cast;
 using std::chrono::high_resolution_clock;
 
-extern atomic<uint64_t> BYTES_RECEIVED_TOT;
 extern std::string HDRDMA_REMOTE_ADDR;
 
 //
@@ -256,7 +255,7 @@ void hdRDMAThread::ThreadRun(SOCKET sockfd)
 		auto &buffer  = buffers[id];
 		auto buff     = std::get<0>(buffer);
 		//auto buff_len = std::get<1>(buffer);
-		BYTES_RECEIVED_TOT += wc.byte_len;
+		hdrdma->total_bytes_received += wc.byte_len;
 		ReceiveBuffer( buff, wc.byte_len ); //n.b. do NOT use buff_len here!
 		t_last_received = high_resolution_clock::now();
 
@@ -652,7 +651,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 	double filesize_GB = (double)filesize*1.0E-9;
 	
 	std::string mess = delete_after_send ? " - will be deleted after send":"";
-	cout << "Sending file: " << srcfilename << "-> (" << HDRDMA_REMOTE_ADDR << ":)" << dstfilename << "   (" << filesize_GB << " GB)" << mess << endl;
+	cout << "Sending file: " << srcfilename << "-> (" << hdrdma->remote_addr << ":)" << dstfilename << "   (" << filesize_GB << " GB)" << mess << endl;
 	
 	struct ibv_send_wr wr, *bad_wr = nullptr;
 	struct ibv_sge sge;

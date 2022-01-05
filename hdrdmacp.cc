@@ -3,11 +3,12 @@
 #include <unistd.h>
 #endif
 
-//#include <infiniband/verbs.h>
-#include "hdRDMA.h"
+#include "IhdRDMA.h"
 
 #include <iostream>
 #include <vector>
+#include <chrono>
+#include <thread>
 using namespace std;
 using std::chrono::steady_clock;
 using std::chrono::duration;
@@ -42,7 +43,11 @@ int main(int narg, char *argv[])
 	ParseCommandLineArguments( narg, argv );
 
 	// Create an hdRDMA object
-	hdRDMA hdrdma;
+	hdrdma::config hdrdma_config;
+	hdrdma_config.remote_addr = HDRDMA_REMOTE_ADDR;
+	hdrdma_config.buffer_len_gb = HDRDMA_BUFF_LEN_GB;
+	hdrdma_config.num_buffer_sections = HDRDMA_NUM_BUFF_SECTIONS;
+	auto hdrdma = hdrdma::Create(hdrdma_config);
 
 	// Listen for remote peers if we are in server mode
 	// This will launch a thread and listen for any remote connections.
@@ -51,7 +56,7 @@ int main(int narg, char *argv[])
 	// This will return right away so one must check the GetNpeers() method
 	// to see when a connection is made.
 	if( HDRDMA_IS_SERVER ){
-		hdrdma.Listen( HDRDMA_LOCAL_PORT );
+		hdrdma->Listen( HDRDMA_LOCAL_PORT );
 
 		// We want to report 10sec, 1min, and 5min averages
 		auto t_last_10sec = steady_clock::now();
@@ -63,7 +68,7 @@ int main(int narg, char *argv[])
 
 		while( true ){
 			
-			hdrdma.Poll();
+			hdrdma->Poll();
 			
 			auto now = steady_clock::now();
 			auto duration_10sec = duration_cast<std::chrono::seconds>(now - t_last_10sec);
@@ -101,7 +106,7 @@ int main(int narg, char *argv[])
 		}
 
 		// Stop server from listening (if one is)
-		hdrdma.StopListening();
+		hdrdma->StopListening();
 	}	
 
 	// Connect to remote peer if we are in client mode.
@@ -111,8 +116,8 @@ int main(int narg, char *argv[])
 	// be made available for transfers. If the connection cannot be made 
 	// then it will exit the program with an error message.
 	if( HDRDMA_IS_CLIENT ){
-		hdrdma.Connect( HDRDMA_REMOTE_ADDR, HDRDMA_REMOTE_PORT );
-		hdrdma.SendFile( HDRDMA_SRCFILENAME, HDRDMA_DSTFILENAME, HDRDMA_DELETE_AFTER_SEND, HDRDMA_CALCULATE_CHECKSUM, HDRDMA_MAKE_PARENT_DIRS );
+		hdrdma->Connect( HDRDMA_REMOTE_ADDR, HDRDMA_REMOTE_PORT );
+		hdrdma->SendFile( HDRDMA_SRCFILENAME, HDRDMA_DSTFILENAME, HDRDMA_DELETE_AFTER_SEND, HDRDMA_CALCULATE_CHECKSUM, HDRDMA_MAKE_PARENT_DIRS );
 	}
 	
 	return 0;

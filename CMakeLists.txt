@@ -30,17 +30,36 @@ add_subdirectory(modules/libwinibverbs)
 message("ZLIB_LIBRARY: ${ZLIB_LIBRARY}")
 message("ZLIB_INCLUDE_DIRS: ${ZLIB_INCLUDE_DIRS}")
 
-add_executable(hdrdmacp
+#===============================================================================
+# LIBRARY
+#===============================================================================
+add_library(libhdrdmacp SHARED
+	IhdRDMA.h
 	hdRDMA.cc
 	hdRDMA.h
-	hdrdmacp.cc
 	hdRDMAThread.cc
 	hdRDMAThread.h
 )
-add_dependencies(hdrdmacp winibverbs)
-target_compile_definitions(hdrdmacp PRIVATE _CRT_SECURE_NO_WARNINGS)
-target_link_libraries(hdrdmacp winibverbs ${ZLIB_LIBRARY})
-target_include_directories(hdrdmacp PRIVATE ${ZLIB_INCLUDE_DIRS} modules/libwinibverbs/include)
+add_dependencies(libhdrdmacp winibverbs)
+target_compile_definitions(libhdrdmacp PRIVATE _CRT_SECURE_NO_WARNINGS BUILDING_HDRDMA)
+target_link_libraries(libhdrdmacp winibverbs ${ZLIB_LIBRARY})
+target_include_directories(libhdrdmacp PRIVATE ${ZLIB_INCLUDE_DIRS} modules/libwinibverbs/include)
+
+set_target_properties(libhdrdmacp PROPERTIES OUTPUT_NAME hdrdmacp)
+
+install(TARGETS libhdrdmacp DESTINATION ${CMAKE_INSTALL_PREFIX})
+install(FILES 
+	IhdRDMA.h
+	DESTINATION include)
+
+#===============================================================================
+# APPLICATION
+#===============================================================================
+add_executable(hdrdmacp
+	hdrdmacp.cc
+)
+add_dependencies(hdrdmacp libhdrdmacp)
+target_link_libraries(hdrdmacp libhdrdmacp)
 
 add_custom_command(TARGET hdrdmacp POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:hdrdmacp> $<TARGET_FILE_DIR:hdrdmacp>

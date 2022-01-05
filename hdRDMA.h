@@ -25,22 +25,25 @@
 
 #include "hdRDMAThread.h"
 
-class hdRDMA{
+#include "IhdRDMA.h"
+
+class hdRDMA : public hdrdma::IhdRDMA {
 	public:
 		
-		         hdRDMA();
-		         ~hdRDMA();
-		    void CreateQP(void);
-		    void Listen(int port);
-		    void StopListening(void);
-		    void Connect(std::string host, int port);
+		         hdRDMA(const hdrdma::config &config);
+		         ~hdRDMA() override;
+		virtual void Listen(int port) override;
+		virtual void StopListening(void) override;
+		virtual void Connect(std::string host, int port) override;
 		uint32_t GetNpeers(void);
 		    void GetBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers, int Nrequested=4 );
 		    void ReturnBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers );
-		    void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false);
-		    void Poll(void);
+		virtual void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false) override;
+		virtual void Poll(void) override;
 
-		
+		virtual uint64_t TotalBytesReceived() const override { return total_bytes_received; }
+		std::atomic_ullong total_bytes_received = 0;
+
 		struct ibv_device *dev = nullptr;
 		struct ibv_context *ctx = nullptr;
 		int    port_num = 1;
@@ -67,5 +70,7 @@ class hdRDMA{
 		std::atomic<uint64_t> Ntransferred;
 		uint64_t Ntransferred_last = 0;
 		std::chrono::high_resolution_clock::time_point t_last;
+
+		std::string remote_addr;
 };
 

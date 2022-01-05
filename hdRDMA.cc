@@ -20,9 +20,18 @@ using std::chrono::duration;
 using std::chrono::duration_cast;
 using std::chrono::high_resolution_clock;
 
-extern uint64_t HDRDMA_BUFF_LEN_GB;
-extern uint64_t HDRDMA_NUM_BUFF_SECTIONS;
+extern "C"
+{
+	HDRDMA_DLL hdrdma::IhdRDMA* hdrdma_allocate(const hdrdma::config& config)
+	{
+		return new hdRDMA(config);
+	}
 
+	HDRDMA_DLL void hdrdma_free(hdrdma::IhdRDMA* hdrdma)
+	{
+		delete hdrdma;
+	}
+}
 
 //-------------------------------------------------------------
 // hdRDMA
@@ -30,7 +39,7 @@ extern uint64_t HDRDMA_NUM_BUFF_SECTIONS;
 // hdRDMA constructor. This will look for IB devices and set up
 // for RDMA communications on the first one it finds.
 //-------------------------------------------------------------
-hdRDMA::hdRDMA()
+hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 {
 	cout << "Looking for IB devices ..." << endl;
 	int num_devices = 0;
@@ -151,9 +160,8 @@ hdRDMA::hdRDMA()
 	// Allocate a large buffer and create a memory region pointing to it.
 	// We will split this one memory region among multiple receive requests
 	// n.b. initial tests failed on transfer for buffers larger than 1GB
-	uint64_t buff_len_GB = HDRDMA_BUFF_LEN_GB;
-	num_buff_sections = HDRDMA_NUM_BUFF_SECTIONS;
-	buff_section_len = (buff_len_GB*1000000000)/(uint64_t)num_buff_sections;
+	num_buff_sections = config.num_buffer_sections;
+	buff_section_len = (config.buffer_len_gb *1000000000)/(uint64_t)num_buff_sections;
 	buff_len = num_buff_sections*buff_section_len;
 	buff = new uint8_t[buff_len];
 	if( !buff ){
