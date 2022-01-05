@@ -313,9 +313,6 @@ void hdRDMAThread::ExchangeQPInfo( SOCKET sockfd )
 	
 	// Create a new QP to use with the remote peer. 
 	CreateQP();
-	
-	// Create a work receive request for each MR buffer we have
-	for( uint32_t id=0; id<buffers.size(); id++ ) PostWR( id );
 
 	tmp_qp_info.lid       = htons(qpinfo.lid);
 	tmp_qp_info.qp_num    = htonl(qpinfo.qp_num);
@@ -348,6 +345,9 @@ void hdRDMAThread::ExchangeQPInfo( SOCKET sockfd )
 	// Set QP state to RTS
 	auto ret = SetToRTS();
 	if( ret != 0 ) cout << "ERROR: Unable to set QP to RTS state!" << endl;
+
+	// Create a work receive request for each MR buffer we have
+	for (uint32_t id = 0; id < buffers.size(); id++) PostWR(id);
 
 }
 

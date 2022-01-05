@@ -40,7 +40,7 @@ add_executable(hdrdmacp
 add_dependencies(hdrdmacp winibverbs)
 target_compile_definitions(hdrdmacp PRIVATE _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(hdrdmacp winibverbs ${ZLIB_LIBRARY})
-target_include_directories(hdrdmacp PRIVATE ${ZLIB_INCLUDE_DIRS})
+target_include_directories(hdrdmacp PRIVATE ${ZLIB_INCLUDE_DIRS} modules/libwinibverbs/include)
 
 add_custom_command(TARGET hdrdmacp POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:hdrdmacp> $<TARGET_FILE_DIR:hdrdmacp>
