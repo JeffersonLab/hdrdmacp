@@ -8,13 +8,22 @@
 #include <atomic>
 #include <mutex>
 
+#if __GNUC__
 #include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#endif
+
+#ifdef _MSC_VER
+#ifndef WIN32
+#define WIN32
+#endif
+#include <Winsock2.h>
+#endif
 
 #include <infiniband/verbs.h>
 
-#include <hdRDMAThread.h>
+#include "hdRDMAThread.h"
 
 class hdRDMA{
 	public:

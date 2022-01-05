@@ -1,8 +1,10 @@
 
+#ifdef __GNUC__
 #include <unistd.h>
+#endif
 
 //#include <infiniband/verbs.h>
-#include <hdRDMA.h>
+#include "hdRDMA.h"
 
 #include <iostream>
 #include <vector>

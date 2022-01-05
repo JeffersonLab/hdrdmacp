@@ -1,7 +1,10 @@
 
-#include <hdRDMA.h>
+#include "hdRDMA.h"
 
+#ifdef __GNUC__
 #include <unistd.h>
+#endif
+
 #include <string.h>
 
 #include <iostream>
