@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project (hdrdmacp)
+set(CMAKE_CXX_STANDARD 17)
 
 #
 # Pull submodules.
@@ -21,7 +22,13 @@ endif()
 #
 # Add submodules
 #
-add_subdirectory(modules/libwinibverbs)
+if(WIN32)
+	add_subdirectory(modules/libwinibverbs)
+	set(winibverbs_include "modules/libwinibverbs/include")
+	set(iverbs_lib winibverbs)
+else()
+	set(iverbs_lib ibverbs)
+endif()
 
 #
 # Thanks to a bug in CMake, we just manually pass ZLIB_LIBRARY and ZLIB_INCLUDE_DIRS
@@ -40,10 +47,12 @@ add_library(libhdrdmacp SHARED
 	hdRDMAThread.cc
 	hdRDMAThread.h
 )
-add_dependencies(libhdrdmacp winibverbs)
+if(WIN32)
+	add_dependencies(libhdrdmacp winibverbs)
+endif()
 target_compile_definitions(libhdrdmacp PRIVATE _CRT_SECURE_NO_WARNINGS BUILDING_HDRDMA)
-target_link_libraries(libhdrdmacp winibverbs ${ZLIB_LIBRARY})
-target_include_directories(libhdrdmacp PRIVATE ${ZLIB_INCLUDE_DIRS} modules/libwinibverbs/include)
+target_link_libraries(libhdrdmacp ${iverbs_lib} ${ZLIB_LIBRARY})
+target_include_directories(libhdrdmacp PRIVATE ${ZLIB_INCLUDE_DIRS} ${winibverbs_include})
 
 set_target_properties(libhdrdmacp PROPERTIES OUTPUT_NAME hdrdmacp)
 
@@ -61,7 +70,9 @@ add_executable(hdrdmacp
 add_dependencies(hdrdmacp libhdrdmacp)
 target_link_libraries(hdrdmacp libhdrdmacp)
 
-add_custom_command(TARGET hdrdmacp POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:hdrdmacp> $<TARGET_FILE_DIR:hdrdmacp>
-  COMMAND_EXPAND_LISTS
-)
+if (WIN32)
+	add_custom_command(TARGET hdrdmacp POST_BUILD
+	  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:hdrdmacp> $<TARGET_FILE_DIR:hdrdmacp>
+	  COMMAND_EXPAND_LISTS
+	)
+endif()

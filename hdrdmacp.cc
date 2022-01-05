@@ -9,6 +9,7 @@
 #include <vector>
 #include <chrono>
 #include <thread>
+#include <atomic>
 using namespace std;
 using std::chrono::steady_clock;
 using std::chrono::duration;

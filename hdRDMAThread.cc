@@ -96,7 +96,7 @@ typedef int mode_t;
 
 #ifdef __GNUC__
 #define send64 send
-#define recv recv
+#define recv64 recv
 #endif
 
 //-----------------------------------------
