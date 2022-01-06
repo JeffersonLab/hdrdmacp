@@ -78,7 +78,7 @@ class hdRDMAThread{
 		int SetToRTS(void);
 		void ReceiveBuffer(uint8_t *buff, uint32_t buff_len);
 		void ClientConnect( SOCKET sockfd );
-		void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false);
+		int SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false);
 		void PollCQ(void);
 		bool makePath( const std::string &path );
 		

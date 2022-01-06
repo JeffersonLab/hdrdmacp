@@ -45,7 +45,7 @@ namespace hdrdma
 		virtual void Listen(int port) = 0;
 		virtual void StopListening(void) = 0;
 		virtual void Connect(std::string host, int port) = 0;
-		virtual void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send = false, bool calculate_checksum = false, bool makeparentdirs = false) = 0;
+		virtual int SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send = false, bool calculate_checksum = false, bool makeparentdirs = false) = 0;
 		virtual void Poll(void) = 0;
 
 		virtual uint64_t TotalBytesReceived() const = 0;
