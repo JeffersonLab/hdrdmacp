@@ -406,7 +406,7 @@ int hdRDMA::SendFile(std::string srcfilename, std::string dstfilename, bool dele
 
 	if( hdthr_client == nullptr ){
 		cerr << "ERROR: hdRDMA::SendFile called before hdthr_client instantiated." << endl;
-		return;
+		return -1;
 	}
 	
 	return hdthr_client->SendFile( srcfilename, dstfilename, delete_after_send, calculate_checksum, makeparentdirs);
