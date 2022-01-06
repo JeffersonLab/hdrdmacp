@@ -23,6 +23,8 @@ namespace hdrdma
 
 	struct config
 	{
+		config(const std::string_view& remote) : remote_addr(remote), buffer_len_gb(1), num_buffer_sections(4) {}
+
 		size_t buffer_len_gb;
 		size_t num_buffer_sections;
 		std::string remote_addr;
