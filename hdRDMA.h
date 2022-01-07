@@ -62,6 +62,7 @@ class hdRDMA : public hdrdma::IhdRDMA {
 		bool done = false;
 		SOCKET server_sockfd = 0;
 		std::thread *server_thread = nullptr;
+		std::thread *ack_thread = nullptr;
 		uint32_t Nconnections = 0;
 		
 		hdRDMAThread *hdthr_client = nullptr;

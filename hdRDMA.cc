@@ -186,12 +186,15 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 	cout << "Created " << buffer_pool.size() << " buffers of " << buff_section_len/1000000 << "MB (" << buff_len/1000000000 << "GB total)" << endl;
 
 	// Create thread to listen for async ibv events
-	new std::thread( [&](){
+	ack_thread = new std::thread( [&](){
 		while( !done ){
 			struct ibv_async_event async_event;
 			auto ret = ibv_get_async_event( ctx, &async_event);
-			cout << "+++ RDMA async event: type=" << async_event.event_type << "  ret=" << ret << endl;
-			ibv_ack_async_event( &async_event );
+			if (ret != -1)
+			{
+				cout << "+++ RDMA async event: type=" << async_event.event_type << "  ret=" << ret << endl;
+				ibv_ack_async_event(&async_event);
+			}
 		}
 	});
 
@@ -205,6 +208,7 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 hdRDMA::~hdRDMA()
 {
 	// Stop all connection threads
+	done = true;
 	for( auto t : threads ){
 		t.second->stop = true;
 		t.first->join();
@@ -216,6 +220,10 @@ hdRDMA::~hdRDMA()
 	if(         buff!=nullptr ) delete[] buff;
 	if(           pd!=nullptr ) ibv_dealloc_pd( pd );
 	if(          ctx!=nullptr ) ibv_close_device( ctx );
+
+	ack_thread->join();
+	delete ack_thread;
+	ack_thread = nullptr;
 	
 #ifdef _MSC_VER
 #	define SHUT_RDWR SD_BOTH
