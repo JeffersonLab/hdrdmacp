@@ -24,6 +24,7 @@ namespace hdrdma
 	struct config
 	{
 		config(const std::string_view& remote) : remote_addr(remote), buffer_len_gb(1), num_buffer_sections(4) {}
+		config() {}
 
 		size_t buffer_len_gb;
 		size_t num_buffer_sections;
@@ -47,8 +48,9 @@ namespace hdrdma
 		virtual void Listen(int port) = 0;
 		virtual void StopListening(void) = 0;
 		virtual void Connect(std::string host, int port) = 0;
-		virtual int SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send = false, bool calculate_checksum = false, bool makeparentdirs = false) = 0;
+		virtual void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send = false, bool calculate_checksum = false, bool makeparentdirs = false) = 0;
 		virtual void Poll(void) = 0;
+		virtual void Join(void) = 0;
 
 		virtual uint64_t TotalBytesReceived() const = 0;
 	};

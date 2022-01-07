@@ -38,8 +38,9 @@ class hdRDMA : public hdrdma::IhdRDMA {
 		uint32_t GetNpeers(void);
 		    void GetBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers, int Nrequested=4 );
 		    void ReturnBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers );
-		virtual int SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false) override;
+		virtual void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false) override;
 		virtual void Poll(void) override;
+		virtual void Join(void) override;
 
 		virtual uint64_t TotalBytesReceived() const override { return total_bytes_received; }
 		std::atomic_ullong total_bytes_received = 0;

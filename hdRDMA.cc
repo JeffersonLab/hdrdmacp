@@ -120,7 +120,7 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 	ctx = ibv_open_device(dev);
 	if( !ctx ){
 		cout << "Error opening IB device context!" << endl;
-		exit(-11);
+		throw std::runtime_error("ibv_open_device failed");
 	}
 	
 	// Get device and port attributes
@@ -154,7 +154,7 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 	pd = ibv_alloc_pd(ctx);
 	if( !pd ){
 		cout << "ERROR allocation protection domain!" << endl;
-		exit(-12);
+		throw std::runtime_error("ibv_alloc_pd failed");
 	}
 	
 	// Allocate a large buffer and create a memory region pointing to it.
@@ -166,7 +166,7 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 	buff = new uint8_t[buff_len];
 	if( !buff ){
 		cout << "ERROR: Unable to allocate buffer!" << endl;
-		exit(-13);
+		throw std::runtime_error("buff allocation failed");
 	}
 	errno = 0;
 	auto access = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE;
@@ -174,7 +174,7 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 	if( !mr ){
 		cout << "ERROR: Unable to register memory region! errno=" << errno << endl;
 		cout << "       (Please see usage statement for a possible work around)" << endl;
-		exit( -14 );
+		throw std::runtime_error("ibv_reg_mr failed");
 	}
 	
 	// Fill in buffers
@@ -243,7 +243,7 @@ void hdRDMA::Listen(int port)
 	auto ret = bind( server_sockfd, (struct sockaddr*)&addr, sizeof(addr) );
 	if( ret != 0 ){
 		cout << "ERROR: binding server socket!" << endl;
-		exit(-2);
+		throw std::runtime_error("bind failed");
 	}
 	listen(server_sockfd, 5);
 	
@@ -260,7 +260,7 @@ void hdRDMA::Listen(int port)
 			struct sockaddr_in peer_addr;
 			socklen_t peer_addr_len = sizeof(struct sockaddr_in);
 			peer_sockfd = accept(server_sockfd, (struct sockaddr *)&peer_addr, &peer_addr_len);
-			if( peer_sockfd > 0 ){
+			if( peer_sockfd != INVALID_SOCKET ){
 //				cout << "Connection from " << inet_ntoa(peer_addr.sin_addr) << endl;
 				
 				// Create a new thread to handle this connection
@@ -294,11 +294,11 @@ void hdRDMA::StopListening(void)
 	if( server_thread ){
 		cout << "Waiting for server to finish ..." << endl;
 		done = true;
+		if (server_sockfd) closesocket(server_sockfd);
+		server_sockfd = 0;
 		server_thread->join();
 		delete server_thread;
 		server_thread = nullptr;
-		if( server_sockfd ) closesocket( server_sockfd );
-		server_sockfd = 0;
 	}else{
 		cout << "Server not running." <<endl;
 	}
@@ -350,7 +350,7 @@ void hdRDMA::Connect(std::string host, int port)
 	ret = connect( sockfd, (struct sockaddr*)&addr, sizeof(addr) );
 	if( ret != 0 ){
 		cout << "ERROR: connecting to server: " << host << " (" << inet_ntoa(addr.sin_addr) << ")" << endl;
-		exit(-3);
+		throw std::runtime_error("connect failed");
 	}else{
 		cout << "Connected to " << host << ":" << port << endl;
 	}
@@ -400,16 +400,16 @@ void hdRDMA::ReturnBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers )
 //-------------------------------------------------------------
 // SendFile
 //-------------------------------------------------------------
-int hdRDMA::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
+void hdRDMA::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
 {
 	// This just calls the SendFile method of the client hdRDMAThread
 
 	if( hdthr_client == nullptr ){
 		cerr << "ERROR: hdRDMA::SendFile called before hdthr_client instantiated." << endl;
-		return -1;
+		throw std::runtime_error("Need to Connect() first");
 	}
 	
-	return hdthr_client->SendFile( srcfilename, dstfilename, delete_after_send, calculate_checksum, makeparentdirs);
+	hdthr_client->SendFile( srcfilename, dstfilename, delete_after_send, calculate_checksum, makeparentdirs);
 
 }
 
@@ -448,5 +448,20 @@ void hdRDMA::Poll(void)
 		threads.erase(s);
 	}
 
+}
+
+//-------------------------------------------------------------
+// Join
+//
+// Waits for client threads to finish.
+//-------------------------------------------------------------
+void hdRDMA::Join(void)
+{
+	cout << "Waiting for clients to finish ..." << endl;
+	for (auto t : threads) {
+		t.first->join();
+		delete t.second;
+	}
+	threads.clear();
 }
 

@@ -635,13 +635,13 @@ void hdRDMAThread::ClientConnect( SOCKET sockfd )
 //-------------------------------------------------------------
 // SendFile
 //-------------------------------------------------------------
-int hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
+void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
 {
 	// Open local file
 	std::ifstream ifs(srcfilename.c_str());
 	if( !ifs.is_open() ){
 		cerr <<"ERROR: Unable to open file \"" << srcfilename << "\"!" << endl;
-		return -40;
+		throw std::runtime_error("Couldn't open output file");
 	}
 	
 	// Get filesize
