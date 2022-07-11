@@ -30,12 +30,7 @@ else()
 	set(iverbs_lib ibverbs)
 endif()
 
-#
-# Thanks to a bug in CMake, we just manually pass ZLIB_LIBRARY and ZLIB_INCLUDE_DIRS
-#
-#find_library(ZLIB REQUIRED)
-message("ZLIB_LIBRARY: ${ZLIB_LIBRARY}")
-message("ZLIB_INCLUDE_DIRS: ${ZLIB_INCLUDE_DIRS}")
+find_package(ZLIB REQUIRED)
 
 #===============================================================================
 # LIBRARY
