@@ -180,7 +180,7 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 	// Fill in buffers
 	for( uint32_t i=0; i<num_buff_sections; i++){
 		auto b = &buff[ i*buff_section_len ];
-		hdRDMAThread::bufferinfo bi = std::make_tuple( b, buff_section_len );
+		hdRDMAThread::bufferinfo bi = std::make_tuple( b, (uint32_t)buff_section_len );
 		buffer_pool.push_back( bi );
 	}
 	cout << "Created " << buffer_pool.size() << " buffers of " << buff_section_len/1000000 << "MB (" << buff_len/1000000000 << "GB total)" << endl;
