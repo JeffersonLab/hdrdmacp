@@ -44,10 +44,7 @@ int main(int narg, char *argv[])
 	ParseCommandLineArguments( narg, argv );
 
 	// Create an hdRDMA object
-	hdrdma::config hdrdma_config;
-	hdrdma_config.remote_addr = HDRDMA_REMOTE_ADDR;
-	hdrdma_config.buffer_len_gb = HDRDMA_BUFF_LEN_GB;
-	hdrdma_config.num_buffer_sections = HDRDMA_NUM_BUFF_SECTIONS;
+	const hdrdma::config hdrdma_config(HDRDMA_REMOTE_ADDR, HDRDMA_BUFF_LEN_GB * 1000'000'000 / HDRDMA_NUM_BUFF_SECTIONS, HDRDMA_NUM_BUFF_SECTIONS);
 	auto hdrdma = hdrdma::Create(hdrdma_config);
 
 	// Listen for remote peers if we are in server mode

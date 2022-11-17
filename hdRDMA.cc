@@ -89,7 +89,7 @@ extern "C"
 // hdRDMA constructor. This will look for IB devices and set up
 // for RDMA communications on the first one it finds.
 //-------------------------------------------------------------
-hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
+hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.RemoteAddr)
 {
 	cout << "Looking for IB devices ..." << endl;
 	int num_devices = 0;
@@ -213,18 +213,20 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 	//
 	// So instead of creating a single large memory region, create a number of smaller memory regions.
 	// This can hurt performance, but at least the system remains stable!
-	auto remaining_buffer_len_gb = config.buffer_len_gb;
-	while (remaining_buffer_len_gb)
+	constexpr size_t PAGE_SIZE = 2'000'000'000;
+	const auto BUFFER_SECTIONS_PER_PAGE = PAGE_SIZE / config.BufferSectionSize;
+	auto remaining_buffer_size = config.BufferSectionSize * config.BufferSectionCount;
+	while (remaining_buffer_size)
 	{
-		auto buffer_len_gb = std::min<size_t>(2, remaining_buffer_len_gb);
+		auto page_sz = std::min<size_t>(BUFFER_SECTIONS_PER_PAGE * config.BufferSectionSize, remaining_buffer_size);
 		hdBuffer buff;
 
 		// Allocate a large buffer and create a memory region pointing to it.
 		// We will split this one memory region among multiple receive requests
 		// n.b. initial tests failed on transfer for buffers larger than 1GB
-		buff.num_buff_sections = config.num_buffer_sections;
-		buff.buff_section_len = (buffer_len_gb *1000000000)/(uint64_t)buff.num_buff_sections;
-		buff.buff_len = buff.num_buff_sections*buff.buff_section_len;
+		buff.num_buff_sections = page_sz / config.BufferSectionSize;
+		buff.buff_section_len = config.BufferSectionSize;
+		buff.buff_len = page_sz;
 		buff.buff = thp_allocator<uint8_t>::allocate(buff.buff_len);
 		if( !buff.buff ){
 			cout << "ERROR: Unable to allocate buffer!" << endl;
@@ -245,7 +247,7 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 			buffer_pool.emplace_back( b, (uint32_t)buff.buff_section_len, buff.mr );
 		}
 
-		remaining_buffer_len_gb -= buffer_len_gb;
+		remaining_buffer_size -= page_sz;
 		cout << "Created " << buff.num_buff_sections << " buffers of " << buff.buff_section_len/1000000 << "MB (" << buff.buff_len/1000000000 << "GB total)" << endl;
 
 		buffers.push_back(buff);
@@ -434,7 +436,7 @@ void hdRDMA::Connect(std::string host, int port)
 	
 	// Create an hdRDMAThread object to handle the RDMA connection details.
 	// (we won't actually run it in a separate thread.)
-	hdthr_client = new hdRDMAThread( this );
+	hdthr_client.reset(new hdRDMAThread( this ));
 	hdthr_client->ClientConnect( sockfd );
 	
 }

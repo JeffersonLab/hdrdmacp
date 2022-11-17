@@ -70,7 +70,7 @@ class hdRDMA : public hdrdma::IhdRDMA {
 		std::thread *ack_thread = nullptr;
 		uint32_t Nconnections = 0;
 		
-		hdRDMAThread *hdthr_client = nullptr;
+		std::unique_ptr<hdRDMAThread> hdthr_client = nullptr;
 		std::map<std::thread*, hdRDMAThread*> threads;
 		std::mutex threads_mtx;
 
