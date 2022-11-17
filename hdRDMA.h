@@ -7,6 +7,7 @@
 #include <deque>
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
 
 #if __GNUC__
 #include <sys/socket.h>
@@ -63,6 +64,7 @@ class hdRDMA : public hdrdma::IhdRDMA {
 		std::vector<hdBuffer> buffers;
 		std::deque<hdRDMAThread::bufferinfo> buffer_pool;
 		std::mutex buffer_pool_mutex;
+		std::condition_variable buffer_pool_cond;
 
 		bool done = false;
 		SOCKET server_sockfd = 0;

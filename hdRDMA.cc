@@ -300,7 +300,11 @@ hdRDMA::~hdRDMA()
 #	define SHUT_RDWR SD_BOTH
 #endif
 
-	if( server_sockfd ) shutdown( server_sockfd, SHUT_RDWR );
+	if( server_sockfd )
+	{
+		shutdown(server_sockfd, SHUT_RD);
+		closesocket(server_sockfd);
+	}
 }
 
 //-------------------------------------------------------------
@@ -345,7 +349,7 @@ void hdRDMA::Listen(int port)
 				// Create a new thread to handle this connection
 				auto hdthr = new hdRDMAThread( this );
 				auto thr = new std::thread( &hdRDMAThread::ThreadRun, hdthr, peer_sockfd );
-				std::lock_guard<std::mutex> lck( threads_mtx );
+				std::scoped_lock lck( threads_mtx );
 				threads[ thr ] = hdthr;
 				Nconnections++;
 
@@ -373,7 +377,11 @@ void hdRDMA::StopListening(void)
 	if( server_thread ){
 		cout << "Waiting for server to finish ..." << endl;
 		done = true;
-		if (server_sockfd) closesocket(server_sockfd);
+		if (server_sockfd)
+		{
+			shutdown(server_sockfd, SHUT_RD);
+			closesocket(server_sockfd);
+		}
 		server_sockfd = 0;
 		server_thread->join();
 		delete server_thread;
@@ -455,7 +463,17 @@ uint32_t hdRDMA::GetNpeers(void)
 //-------------------------------------------------------------
 void hdRDMA::GetBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers, int Nrequested )
 {
-	std::lock_guard<std::mutex> grd( buffer_pool_mutex );
+	std::unique_lock grd( buffer_pool_mutex );
+
+	while (!done && !buffers.size())
+	{
+		buffer_pool_cond.wait(grd);
+	}
+
+	if (done)
+	{
+		return;
+	}
 
 //cout << "buffer_pool.size()="<<buffer_pool.size() << "  Nrequested=" << Nrequested << endl;
 	
@@ -471,9 +489,16 @@ void hdRDMA::GetBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers, int Nre
 //-------------------------------------------------------------
 void hdRDMA::ReturnBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers )
 {
-	std::lock_guard<std::mutex> grd( buffer_pool_mutex );
+	{
+		std::scoped_lock grd( buffer_pool_mutex );
 
-	for( auto b : buffers ) buffer_pool.push_back( b );
+		for( auto b : buffers )
+		{
+			buffer_pool.push_back( b );
+		}
+	}
+
+	buffer_pool_cond.notify_all();
 }
 
 //-------------------------------------------------------------
@@ -514,7 +539,7 @@ void hdRDMA::Poll(void)
 	}
 
 	// Look for stopped threads and free their resources
-	std::lock_guard<std::mutex> lck( threads_mtx );
+	std::scoped_lock lck( threads_mtx );
 	std::vector<std::thread*> stopped;
 	for( auto t : threads ){
 		if( t.second->stopped ){
