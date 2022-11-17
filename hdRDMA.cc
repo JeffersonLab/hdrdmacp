@@ -20,6 +20,56 @@ using std::chrono::duration;
 using std::chrono::duration_cast;
 using std::chrono::high_resolution_clock;
 
+#include <sys/mman.h> // mmap, munmap
+#include <linux/mman.h>
+
+template <typename T>
+struct thp_allocator
+{
+	constexpr static std::size_t huge_page_size = 1 << 30;	// 1 GiB
+	using value_type = T;
+
+#ifdef WIN32
+	static T *allocate(std::size_t n)
+	{
+		if (n > std::numeric_limits<std::size_t>::max() / sizeof(T))
+		{
+			throw std::bad_alloc();
+		}
+
+		void *p = _aligned_malloc(, huge_page_size);
+		if (p == nullptr)
+		{
+			throw std::bad_alloc();
+		}
+
+		return static_cast<T *>(p);
+	}
+
+	static void deallocate(T *p) { _aligned_free(p); }
+#else
+	static T *allocate(std::size_t n)
+	{
+		if (n > std::numeric_limits<std::size_t>::max() / sizeof(T))
+		{
+			throw std::bad_alloc();
+		}
+
+		void *p = nullptr;
+		posix_memalign(&p, huge_page_size, n * sizeof(T));
+		madvise(p, n * sizeof(T), MADV_HUGEPAGE);
+		if (p == nullptr)
+		{
+			throw std::bad_alloc();
+		}
+
+		return static_cast<T *>(p);
+	}
+
+	static void deallocate(T *p) { std::free(p); }
+#endif
+};
+
 extern "C"
 {
 	HDRDMA_DLL hdrdma::IhdRDMA* hdrdma_allocate(const hdrdma::config& config)
@@ -156,34 +206,50 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 		cout << "ERROR allocation protection domain!" << endl;
 		throw std::runtime_error("ibv_alloc_pd failed");
 	}
-	
-	// Allocate a large buffer and create a memory region pointing to it.
-	// We will split this one memory region among multiple receive requests
-	// n.b. initial tests failed on transfer for buffers larger than 1GB
-	num_buff_sections = config.num_buffer_sections;
-	buff_section_len = (config.buffer_len_gb *1000000000)/(uint64_t)num_buff_sections;
-	buff_len = num_buff_sections*buff_section_len;
-	buff = new uint8_t[buff_len];
-	if( !buff ){
-		cout << "ERROR: Unable to allocate buffer!" << endl;
-		throw std::runtime_error("buff allocation failed");
+
+	// Looks like there's a bug in Ubuntu 20.04 where memory regions > 2GB fail to deregister.
+	// The failure causes the entire system to freeze and become completely unusable!
+	// https://forums.developer.nvidia.com/t/cannot-deregister-memory-region-ibv-dereg-mr-if-mr-size-reach-2gb/217980
+	//
+	// So instead of creating a single large memory region, create a number of smaller memory regions.
+	// This can hurt performance, but at least the system remains stable!
+	auto remaining_buffer_len_gb = config.buffer_len_gb;
+	while (remaining_buffer_len_gb)
+	{
+		auto buffer_len_gb = std::min<size_t>(2, remaining_buffer_len_gb);
+		hdBuffer buff;
+
+		// Allocate a large buffer and create a memory region pointing to it.
+		// We will split this one memory region among multiple receive requests
+		// n.b. initial tests failed on transfer for buffers larger than 1GB
+		buff.num_buff_sections = config.num_buffer_sections;
+		buff.buff_section_len = (buffer_len_gb *1000000000)/(uint64_t)buff.num_buff_sections;
+		buff.buff_len = buff.num_buff_sections*buff.buff_section_len;
+		buff.buff = thp_allocator<uint8_t>::allocate(buff.buff_len);
+		if( !buff.buff ){
+			cout << "ERROR: Unable to allocate buffer!" << endl;
+			throw std::runtime_error("buff allocation failed");
+		}
+		errno = 0;
+		auto access = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE;
+		buff.mr = ibv_reg_mr( pd, buff.buff, buff.buff_len, access);
+		if( !buff.mr ){
+			cout << "ERROR: Unable to register memory region! errno=" << errno << endl;
+			cout << "       (Please see usage statement for a possible work around)" << endl;
+			throw std::runtime_error("ibv_reg_mr failed");
+		}
+		
+		// Fill in buffers
+		for( uint32_t i=0; i<buff.num_buff_sections; i++){
+			auto b = &buff.buff[ i*buff.buff_section_len ];
+			buffer_pool.emplace_back( b, (uint32_t)buff.buff_section_len, buff.mr );
+		}
+
+		remaining_buffer_len_gb -= buffer_len_gb;
+		cout << "Created " << buffer_pool.size() << " buffers of " << buff.buff_section_len/1000000 << "MB (" << buff.buff_len/1000000000 << "GB total)" << endl;
+
+		buffers.push_back(buff);
 	}
-	errno = 0;
-	auto access = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE;
-	mr = ibv_reg_mr( pd, buff, buff_len, access);
-	if( !mr ){
-		cout << "ERROR: Unable to register memory region! errno=" << errno << endl;
-		cout << "       (Please see usage statement for a possible work around)" << endl;
-		throw std::runtime_error("ibv_reg_mr failed");
-	}
-	
-	// Fill in buffers
-	for( uint32_t i=0; i<num_buff_sections; i++){
-		auto b = &buff[ i*buff_section_len ];
-		hdRDMAThread::bufferinfo bi = std::make_tuple( b, (uint32_t)buff_section_len );
-		buffer_pool.push_back( bi );
-	}
-	cout << "Created " << buffer_pool.size() << " buffers of " << buff_section_len/1000000 << "MB (" << buff_len/1000000000 << "GB total)" << endl;
 
 	// Create thread to listen for async ibv events
 	ack_thread = new std::thread( [&](){
@@ -216,8 +282,11 @@ hdRDMA::~hdRDMA()
 	}
 
 	// Close and free everything
-	if(           mr!=nullptr ) ibv_dereg_mr( mr );
-	if(         buff!=nullptr ) delete[] buff;
+	for (auto& b : buffers)
+	{
+		if(      b.mr!=nullptr ) ibv_dereg_mr( b.mr );
+		if(    b.buff!=nullptr ) thp_allocator<uint8_t>::deallocate(b.buff);
+	}
 	if(           pd!=nullptr ) ibv_dealloc_pd( pd );
 	if(          ctx!=nullptr ) ibv_close_device( ctx );
 

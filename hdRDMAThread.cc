@@ -253,7 +253,7 @@ void hdRDMAThread::ThreadRun(SOCKET sockfd)
 			break; // exit thread
 		}
 		auto &buffer  = buffers[id];
-		auto buff     = std::get<0>(buffer);
+		auto buff     = buffer.Buffer;
 		//auto buff_len = std::get<1>(buffer);
 		hdrdma->total_bytes_received += wc.byte_len;
 		ReceiveBuffer( buff, wc.byte_len ); //n.b. do NOT use buff_len here!
@@ -277,8 +277,8 @@ void hdRDMAThread::PostWR( int id )
 	//cout << "Posting WR for id: " << id << endl;
 
 	auto &buffer  = buffers[id];
-	auto buff     = std::get<0>(buffer);
-	auto buff_len = std::get<1>(buffer);
+	auto buff     = buffer.Buffer;
+	auto buff_len = buffer.BufferLen;
 
 	struct ibv_recv_wr wr;
 	struct ibv_sge sge;
@@ -289,7 +289,7 @@ void hdRDMAThread::PostWR( int id )
 	wr.num_sge = 1;
 	sge.addr = (uint64_t)buff;
 	sge.length = buff_len;
-	sge.lkey = hdrdma->mr->lkey;
+	sge.lkey = buffer.MR->lkey;
 	auto ret = ibv_post_recv( qp, &wr, &bad_wr);
 	if( ret != 0 ){
 		cout << "ERROR: ibv_post_recv returned non zero value (" << ret << ")" << endl;
@@ -663,8 +663,6 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 	wr.num_sge = 1;
 	wr.send_flags = IBV_SEND_SIGNALED,
 	
-	sge.lkey = hdrdma->mr->lkey;
-	
 	// Send buffers
 	crcsum = adler32( 0L, Z_NULL, 0 );
 	t1 = high_resolution_clock::now();
@@ -676,9 +674,10 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 	for(int i=0; i<1000; i++){ // if sending more than 1000 buffers something is wrong!
 		auto id = i%buffers.size();
 		auto &buffer  = buffers[id];
-		auto buff     = std::get<0>(buffer);
-		auto buff_len = std::get<1>(buffer);
+		auto buff     = buffer.Buffer;
+		auto buff_len = buffer.BufferLen;
 		sge.addr = (uint64_t)buff;
+		sge.lkey = buffer.MR->lkey;
 		HeaderInfo *hi = (HeaderInfo*)sge.addr;
 		hi->buff_type = 1; // buffer holds data for file transfer
 		hi->flags = 0x0;

@@ -65,9 +65,15 @@ class hdRDMAThread{
 				const char* what(void) const noexcept { return mess.c_str(); }
 				std::string mess;
 		};
-		
-		typedef std::tuple<uint8_t*, uint32_t> bufferinfo;
 
+		struct bufferinfo
+		{
+			bufferinfo(uint8_t* buff, uint32_t buff_len, struct ibv_mr* mr) : Buffer(buff), BufferLen(buff_len), MR(mr) {}
+			uint8_t* Buffer = nullptr;
+			uint32_t BufferLen = 0;
+			struct ibv_mr* MR = nullptr;
+		};
+		
 	
 		hdRDMAThread(hdRDMA *hdrdma);
 		~hdRDMAThread();

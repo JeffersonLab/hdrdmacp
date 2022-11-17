@@ -27,6 +27,15 @@
 
 #include "IhdRDMA.h"
 
+struct hdBuffer
+{
+	uint64_t buff_len = 0;
+	uint8_t *buff = nullptr;
+	uint64_t num_buff_sections = 0;
+	uint64_t buff_section_len = 0;
+	struct ibv_mr *mr = nullptr;
+};
+
 class hdRDMA : public hdrdma::IhdRDMA {
 	public:
 		
@@ -51,11 +60,7 @@ class hdRDMA : public hdrdma::IhdRDMA {
 		struct ibv_device_attr attr;
 		struct ibv_port_attr port_attr;
 		ibv_pd *pd = nullptr;
-		uint64_t buff_len = 0;
-		uint8_t *buff = nullptr;
-		uint64_t num_buff_sections = 0;
-		uint64_t buff_section_len = 0;
-		struct ibv_mr *mr = nullptr;
+		std::vector<hdBuffer> buffers;
 		std::deque<hdRDMAThread::bufferinfo> buffer_pool;
 		std::mutex buffer_pool_mutex;
 
