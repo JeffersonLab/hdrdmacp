@@ -689,7 +689,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 			hi->flags |= HI_FIRST_BUFFER; // first buffer of file
 			if( calculate_checksum ) hi->flags |= HI_CALCULATE_CHECKSUM; // tell remote server to calculate checksum
 			if( makeparentdirs     ) hi->flags |= HI_MAKE_PARENT_DIRS;   // tell remote server to make directory path if needed
-			sprintf( (char*)&hi->payload, dstfilename.c_str() );
+			sprintf( (char*)&hi->payload, "%s", dstfilename.c_str() );
 		}else{
 			hi->header_len = sizeof(*hi) - sizeof(hi->payload);
 		}
