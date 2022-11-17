@@ -246,7 +246,7 @@ hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.remote_addr)
 		}
 
 		remaining_buffer_len_gb -= buffer_len_gb;
-		cout << "Created " << buffer_pool.size() << " buffers of " << buff.buff_section_len/1000000 << "MB (" << buff.buff_len/1000000000 << "GB total)" << endl;
+		cout << "Created " << buff.num_buff_sections << " buffers of " << buff.buff_section_len/1000000 << "MB (" << buff.buff_len/1000000000 << "GB total)" << endl;
 
 		buffers.push_back(buff);
 	}
