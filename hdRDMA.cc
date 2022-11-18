@@ -330,11 +330,22 @@ void hdRDMA::Listen(int port)
 	addr.sin_port = htons( port );
 	
 	server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+	// Make Linux sockets act more like Windows - let them be reused immediately.
+	// We don't really care about the security implications of disabling TIME_WAIT.
+	// See: https://stackoverflow.com/questions/22549044/why-is-port-not-immediately-released-after-the-socket-closes
+#ifndef _MSC_VER
+	const int enable = 1;
+	setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+	setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEPORT, &enable, sizeof(int));
+#endif
+
 	auto ret = bind( server_sockfd, (struct sockaddr*)&addr, sizeof(addr) );
 	if( ret != 0 ){
 		cout << "ERROR: binding server socket!" << endl;
 		throw std::runtime_error("bind failed");
 	}
+
 	listen(server_sockfd, 5);
 	
 	// Create separate thread to accept socket connections so we don't block
