@@ -42,6 +42,7 @@ class hdRDMA final : public hdrdma::IhdRDMA {
 		
 		         hdRDMA(const hdrdma::config &config);
 		         ~hdRDMA() override;
+		virtual bool Good() const override { return dev != nullptr; }
 		virtual void Listen(int port) override;
 		virtual void StopListening(void) override;
 		virtual void Connect(std::string host, int port) override;

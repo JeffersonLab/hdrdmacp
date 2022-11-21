@@ -42,7 +42,8 @@ namespace hdrdma
 	class IhdRDMA {
 	public:
 		virtual ~IhdRDMA() {}
-
+		
+		virtual bool Good() const = 0;
 		virtual void Listen(int port) = 0;
 		virtual void StopListening(void) = 0;
 		virtual void Connect(std::string host, int port) = 0;

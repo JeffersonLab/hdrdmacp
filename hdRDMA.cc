@@ -166,6 +166,13 @@ hdRDMA::hdRDMA(const hdrdma::config& config)
 			<< " : lid=" << lid
 			<< endl;
 	}
+
+	if (!dev)
+	{
+		cout << "### No Infiniband adapters found. Is opensm running?" << endl;
+		return;
+	}
+
 	cout << "=============================================" << endl << endl;
 	
 	// Open device
