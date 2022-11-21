@@ -31,6 +31,7 @@ struct thp_allocator
 	using value_type = T;
 
 #ifdef WIN32
+#undef max
 	static T *allocate(std::size_t n)
 	{
 		if (n > std::numeric_limits<std::size_t>::max() / sizeof(T))
@@ -38,7 +39,7 @@ struct thp_allocator
 			throw std::bad_alloc();
 		}
 
-		void *p = _aligned_malloc(, huge_page_size);
+		void *p = _aligned_malloc(n, huge_page_size);
 		if (p == nullptr)
 		{
 			throw std::bad_alloc();
@@ -305,6 +306,7 @@ hdRDMA::~hdRDMA()
 	
 #ifdef _MSC_VER
 #	define SHUT_RDWR SD_BOTH
+#	define SHUT_RD SD_RECEIVE
 #endif
 
 	if( server_sockfd )
