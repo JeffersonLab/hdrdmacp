@@ -147,6 +147,7 @@ hdRDMA::hdRDMA(const hdrdma::config& config)
 				}
 			}
 			ibv_close_device( ctx );
+			ctx = nullptr;
 		}
 		// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	
