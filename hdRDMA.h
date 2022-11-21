@@ -37,7 +37,7 @@ struct hdBuffer
 	struct ibv_mr *mr = nullptr;
 };
 
-class hdRDMA : public hdrdma::IhdRDMA {
+class hdRDMA final : public hdrdma::IhdRDMA {
 	public:
 		
 		         hdRDMA(const hdrdma::config &config);

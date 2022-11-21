@@ -90,7 +90,7 @@ extern "C"
 // hdRDMA constructor. This will look for IB devices and set up
 // for RDMA communications on the first one it finds.
 //-------------------------------------------------------------
-hdRDMA::hdRDMA(const hdrdma::config& config) : remote_addr(config.RemoteAddr)
+hdRDMA::hdRDMA(const hdrdma::config& config)
 {
 	cout << "Looking for IB devices ..." << endl;
 	int num_devices = 0;
@@ -457,7 +457,8 @@ void hdRDMA::Connect(std::string host, int port)
 		cout << "ERROR: connecting to server: " << host << " (" << inet_ntoa(addr.sin_addr) << ")" << endl;
 		throw std::runtime_error("connect failed");
 	}else{
-		cout << "Connected to " << host << ":" << port << endl;
+		remote_addr = host + ':' + std::to_string(port);
+		cout << "Connected to " << remote_addr << endl;
 	}
 	
 	// Create an hdRDMAThread object to handle the RDMA connection details.
