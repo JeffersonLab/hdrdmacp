@@ -54,9 +54,11 @@ namespace hdrdma
 		virtual uint64_t TotalBytesReceived() const = 0;
 	};
 
+	using Ptr = std::unique_ptr<IhdRDMA, decltype(&hdrdma_free)>; 
+
 	// Wrappers. You probably want to use these.
-	static std::shared_ptr<IhdRDMA> Create(const hdrdma::config& config)
+	static auto Create(const hdrdma::config& config)
 	{
-		return std::shared_ptr<IhdRDMA>(hdrdma_allocate(config), hdrdma_free);
+		return Ptr(hdrdma_allocate(config), hdrdma_free);
 	}
 }
