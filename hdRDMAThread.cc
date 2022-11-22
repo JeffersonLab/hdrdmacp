@@ -116,6 +116,7 @@ hdRDMAThread::hdRDMAThread(hdRDMA *hdrdma)
 //-----------------------------------------
 hdRDMAThread::~hdRDMAThread()
 {
+	Dispose();
 }
 		
 //----------------------------------------------------------------------
@@ -137,26 +138,8 @@ void hdRDMAThread::ThreadRun(SOCKET sockfd)
 	{
 		std::cerr << e.what() << '\n';
 	}
-	
-	// Put QP insto RESET state so it releases all outstanding work requests
-	if( qp!=nullptr ){
-		struct ibv_qp_attr qp_attr;
-		memset( &qp_attr, 0, sizeof(qp_attr) );		
-		qp_attr.qp_state = IBV_QPS_RESET;
-		ibv_modify_qp (qp, &qp_attr, IBV_QP_STATE);
-	}
 
-	// Delete all of our allocated objects
-	// n.b. order here matters! If the qp is destroyed after the
-	// comp_channel it will leave open a file descriptor pointing
-	// to [infinibandevent] that we have no way of closing!
-	if(           qp!=nullptr ) ibv_destroy_qp( qp );
-	if(           cq!=nullptr ) ibv_destroy_cq ( cq );
-	if( comp_channel!=nullptr ) ibv_destroy_comp_channel( comp_channel );
-	if(          ofs!=nullptr ) delete ofs;
-
-	// Return MR buffers to pool
-	hdrdma->ReturnBuffers( buffers );
+	Dispose();
 }
 
 //----------------------------------------------------------------------
@@ -659,6 +642,23 @@ void hdRDMAThread::ClientConnect( SOCKET sockfd )
 //-------------------------------------------------------------
 void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
 {
+	try
+	{
+		TrySendFile(srcfilename, dstfilename, delete_after_send, calculate_checksum, makeparentdirs);
+	}
+	catch(const std::exception& e)
+	{
+		std::cerr << e.what() << '\n';
+	}
+
+	Dispose();
+}
+
+//-------------------------------------------------------------
+// TrySendFile
+//-------------------------------------------------------------
+void hdRDMAThread::TrySendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
+{
 	// Open local file
 	std::ifstream ifs(srcfilename.c_str());
 	if( !ifs.is_open() ){
@@ -875,3 +875,33 @@ bool hdRDMAThread::makePath( const std::string &path )
 	}
 }
 
+//-------------------------------------------------------------
+// Dispose
+//-------------------------------------------------------------
+void hdRDMAThread::Dispose()
+{
+	// Put QP insto RESET state so it releases all outstanding work requests
+	if( qp!=nullptr ){
+		struct ibv_qp_attr qp_attr;
+		memset( &qp_attr, 0, sizeof(qp_attr) );		
+		qp_attr.qp_state = IBV_QPS_RESET;
+		ibv_modify_qp (qp, &qp_attr, IBV_QP_STATE);
+	}
+
+	// Delete all of our allocated objects
+	// n.b. order here matters! If the qp is destroyed after the
+	// comp_channel it will leave open a file descriptor pointing
+	// to [infinibandevent] that we have no way of closing!
+	if(           qp!=nullptr ) ibv_destroy_qp( qp );
+	if(           cq!=nullptr ) ibv_destroy_cq ( cq );
+	if( comp_channel!=nullptr ) ibv_destroy_comp_channel( comp_channel );
+	if(          ofs!=nullptr ) delete ofs;
+
+	qp = nullptr;
+	cq = nullptr;
+	comp_channel = nullptr;
+	ofs = nullptr;
+
+	// Return MR buffers to pool
+	hdrdma->ReturnBuffers( buffers );
+}

@@ -525,6 +525,8 @@ void hdRDMA::ReturnBuffers( std::vector<hdRDMAThread::bufferinfo> &buffers )
 		{
 			buffer_pool.push_back( b );
 		}
+
+		buffers.clear();
 	}
 
 	buffer_pool_cond.notify_all();
