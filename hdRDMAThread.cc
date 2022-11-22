@@ -116,6 +116,28 @@ hdRDMAThread::hdRDMAThread(hdRDMA *hdrdma)
 //-----------------------------------------
 hdRDMAThread::~hdRDMAThread()
 {
+}
+		
+//----------------------------------------------------------------------
+// ThreadRun
+//
+// This is run in a dedicated thread in server mode as soon as a
+// TCP connection is established. It will exchange RDMA connection
+// information over the given socket and then loop continously until
+// the client signals it is done or the "stop" flag is set by the
+// hdRDMA object.
+//----------------------------------------------------------------------
+void hdRDMAThread::ThreadRun(SOCKET sockfd)
+{
+	try
+	{
+		TryThreadRun(sockfd);
+	}
+	catch(const std::exception& e)
+	{
+		std::cerr << e.what() << '\n';
+	}
+	
 	// Put QP insto RESET state so it releases all outstanding work requests
 	if( qp!=nullptr ){
 		struct ibv_qp_attr qp_attr;
@@ -136,7 +158,7 @@ hdRDMAThread::~hdRDMAThread()
 	// Return MR buffers to pool
 	hdrdma->ReturnBuffers( buffers );
 }
-		
+
 //----------------------------------------------------------------------
 // ThreadRun
 //
@@ -146,7 +168,7 @@ hdRDMAThread::~hdRDMAThread()
 // the client signals it is done or the "stop" flag is set by the
 // hdRDMA object.
 //----------------------------------------------------------------------
-void hdRDMAThread::ThreadRun(SOCKET sockfd)
+void hdRDMAThread::TryThreadRun(SOCKET sockfd)
 {
 	// The first thing we send via TCP is a 3 byte message indicating
 	// success or failure. This really just allows us to inform the client
