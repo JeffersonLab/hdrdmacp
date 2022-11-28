@@ -56,6 +56,9 @@ class hdRDMA final : public hdrdma::IhdRDMA {
 		virtual uint64_t TotalBytesReceived() const override { return total_bytes_received; }
 		std::atomic_ullong total_bytes_received = 0;
 
+		std::string DecodePath(const std::string_view& p) const;
+		std::shared_ptr<hdrdma::IPathDecoder> PathDecoder;
+
 		struct ibv_device *dev = nullptr;
 		struct ibv_context *ctx = nullptr;
 		int    port_num = 1;

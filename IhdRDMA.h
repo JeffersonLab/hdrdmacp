@@ -20,13 +20,16 @@
 namespace hdrdma
 {
 	class IhdRDMA;
+	class IPathDecoder;
 
 	struct config
 	{
-		config(size_t buffer_section_sz, int buffer_section_count) : BufferSectionSize(buffer_section_sz), BufferSectionCount(buffer_section_count) {}
+		config(size_t buffer_section_sz, int buffer_section_count, const std::shared_ptr<IPathDecoder>& path_decoder = nullptr) : BufferSectionSize(buffer_section_sz), BufferSectionCount(buffer_section_count), PathDecoder(path_decoder) {}
 
 		const size_t BufferSectionSize;
 		const size_t BufferSectionCount;
+
+		std::shared_ptr<IPathDecoder> PathDecoder;
 	};
 }
 
@@ -39,6 +42,13 @@ extern "C"
 
 namespace hdrdma
 {
+	class IPathDecoder {
+	public:
+		virtual ~IPathDecoder() {}
+
+		virtual std::string Decode(const std::string_view& path) const = 0;
+	};
+
 	class IhdRDMA {
 	public:
 		virtual ~IhdRDMA() {}

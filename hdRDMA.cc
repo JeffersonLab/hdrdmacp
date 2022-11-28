@@ -600,3 +600,15 @@ void hdRDMA::Join(void)
 	threads.clear();
 }
 
+//-------------------------------------------------------------
+// DecodePath
+//
+// Handles and user filesystem translations.
+//-------------------------------------------------------------
+std::string hdRDMA::DecodePath(const std::string_view& p) const
+{
+	return PathDecoder
+		? PathDecoder->Decode(p)
+		: std::string(p);
+}
+

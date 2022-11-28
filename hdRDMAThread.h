@@ -107,7 +107,7 @@ class hdRDMAThread{
 
 		QPInfo qpinfo;
 		QPInfo remote_qpinfo;
-		std::ofstream *ofs = nullptr;
+		std::unique_ptr<std::ofstream> ofs;
 		std::string ofilename;
 		uint64_t ofilesize = 0;
 		uint32_t crcsum;

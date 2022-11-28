@@ -485,10 +485,9 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 			if( ofs != nullptr ) {
 				cout << "ERROR: Received new file buffer while file " << ofilename << " already open!" << endl;
 				ofs->close();
-				delete ofs;
 				ofs = nullptr;
 			}
-			ofilename = (char*)&hi->payload;
+			ofilename = hdrdma->DecodePath((const char*)&hi->payload);
 			cout << "Receiving file: " << ofilename << endl;
 			
 			// Create parent directory path if specified by remote sender
@@ -498,7 +497,7 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 				if( pos != std::string::npos ) makePath( ofilename.substr(0, pos) );
 			}
 			
-			ofs = new std::ofstream( ofilename.c_str() );
+			ofs = std::make_unique<std::ofstream>(ofilename);
 			ofilesize = 0;
 			crcsum = adler32( 0L, Z_NULL, 0 );
 			calculate_checksum = (hi->flags & HI_CALCULATE_CHECKSUM); // optionally calculate checksum
@@ -536,7 +535,6 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 				duration<double> duration_io = duration_cast<duration<double>>(t_io_end-t_io_start);
 				delta_t_io += duration_io.count();
 				ofs->close();
-				delete ofs;
 				ofs = nullptr;
 			}
 //			auto t2 = high_resolution_clock::now();
@@ -895,7 +893,6 @@ void hdRDMAThread::Dispose()
 	if(           qp!=nullptr ) ibv_destroy_qp( qp );
 	if(           cq!=nullptr ) ibv_destroy_cq ( cq );
 	if( comp_channel!=nullptr ) ibv_destroy_comp_channel( comp_channel );
-	if(          ofs!=nullptr ) delete ofs;
 
 	qp = nullptr;
 	cq = nullptr;
