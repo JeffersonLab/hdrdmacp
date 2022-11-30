@@ -302,16 +302,19 @@ hdRDMA::~hdRDMA()
 	if(           pd!=nullptr ) ibv_dealloc_pd( pd );
 	if(          ctx!=nullptr ) ibv_close_device( ctx );
 
+	if (ack_thread)
+	{
 #ifdef __GNUC__
-	// 'linux_rdma' wakes up their async event file descriptor with a SIGINT. Here: https://github.com/linux-rdma/rdma-core/blob/3b28e0e4784cce3aceedab39e1ae102538e212e2/srp_daemon/srp_daemon.c#L2017
-	// I tried using async file descriptors with polling, but that didn't seem to help. Oh well, this works I guess.
-	pthread_kill(ack_thread->native_handle(), SIGINT);
+		// 'linux_rdma' wakes up their async event file descriptor with a SIGINT. Here: https://github.com/linux-rdma/rdma-core/blob/3b28e0e4784cce3aceedab39e1ae102538e212e2/srp_daemon/srp_daemon.c#L2017
+		// I tried using async file descriptors with polling, but that didn't seem to help. Oh well, this works I guess.
+		pthread_kill(ack_thread->native_handle(), SIGINT);
 #endif
 
-	ack_thread->join();
-	delete ack_thread;
-	ack_thread = nullptr;
-	
+		ack_thread->join();
+		delete ack_thread;
+		ack_thread = nullptr;
+	}
+
 #ifdef _MSC_VER
 #	define SHUT_RDWR SD_BOTH
 #	define SHUT_RD SD_RECEIVE
