@@ -3,7 +3,6 @@
 #include <sstream>
 #include <iostream>
 #include <atomic>
-#include <strings.h>
 #include <sys/stat.h>
 #include <errno.h>
 
@@ -20,7 +19,6 @@ using std::chrono::duration;
 using std::chrono::duration_cast;
 using std::chrono::high_resolution_clock;
 
-extern atomic<uint64_t> BYTES_RECEIVED_TOT;
 extern std::string HDRDMA_REMOTE_ADDR;
 
 //
@@ -42,6 +40,64 @@ extern std::string HDRDMA_REMOTE_ADDR;
 //   be quite large, but we can support multiple simultaneous connections.
 //
 
+#ifdef _MSC_VER
+size_t send64(SOCKET s, const void *buffer, size_t sz, int flags)
+{
+	const uint64_t total = sz;
+	int bytes_to_write = 0;
+	int64_t bytes_written = 0;
+
+	while (sz && bytes_written == bytes_to_write)
+	{
+		bytes_to_write = (int)std::min<uint64_t>(sz, INT_MAX);
+
+		bytes_written = send(s, (const char *)buffer, bytes_to_write, flags);
+		if (bytes_written < 0)
+		{
+			break;
+		}
+
+		buffer = ((uint8_t *)buffer) + bytes_written;
+		sz -= bytes_written;
+	}
+
+	return total - sz;
+}
+
+size_t recv64(SOCKET s, void *buffer, size_t sz, int flags)
+{
+	const uint64_t total = sz;
+	int bytes_to_read = 0;
+	int64_t bytes_read = 0;
+
+	while (sz && bytes_read == bytes_to_read)
+	{
+		bytes_to_read = (int)std::min<uint64_t>(sz, INT_MAX);
+
+		bytes_read = recv(s, (char *)buffer, bytes_to_read, flags);
+		if (bytes_read < 0)
+		{
+			break;
+		}
+
+		buffer = ((uint8_t *)buffer) + bytes_read;
+		sz -= bytes_read;
+	}
+
+	return total - sz;
+}
+
+#include <direct.h>
+#define mkdir(dir, mode) _mkdir(dir)
+#define unlink _unlink
+
+typedef int mode_t;
+#endif
+
+#ifdef __GNUC__
+#define send64 send
+#define recv64 recv
+#endif
 
 //-----------------------------------------
 // hdRDMAThread (constructor)
@@ -60,25 +116,7 @@ hdRDMAThread::hdRDMAThread(hdRDMA *hdrdma)
 //-----------------------------------------
 hdRDMAThread::~hdRDMAThread()
 {
-	// Put QP insto RESET state so it releases all outstanding work requests
-	if( qp!=nullptr ){
-		struct ibv_qp_attr qp_attr;
-		bzero( &qp_attr, sizeof(qp_attr) );		
-		qp_attr.qp_state = IBV_QPS_RESET;
-		ibv_modify_qp (qp, &qp_attr, IBV_QP_STATE);
-	}
-
-	// Delete all of our allocated objects
-	// n.b. order here matters! If the qp is destroyed after the
-	// comp_channel it will leave open a file descriptor pointing
-	// to [infinibandevent] that we have no way of closing!
-	if(           qp!=nullptr ) ibv_destroy_qp( qp );
-	if(           cq!=nullptr ) ibv_destroy_cq ( cq );
-	if( comp_channel!=nullptr ) ibv_destroy_comp_channel( comp_channel );
-	if(          ofs!=nullptr ) delete ofs;
-
-	// Return MR buffers to pool
-	hdrdma->ReturnBuffers( buffers );
+	Dispose();
 }
 		
 //----------------------------------------------------------------------
@@ -90,7 +128,30 @@ hdRDMAThread::~hdRDMAThread()
 // the client signals it is done or the "stop" flag is set by the
 // hdRDMA object.
 //----------------------------------------------------------------------
-void hdRDMAThread::ThreadRun(int sockfd)
+void hdRDMAThread::ThreadRun(SOCKET sockfd)
+{
+	try
+	{
+		TryThreadRun(sockfd);
+	}
+	catch(const std::exception& e)
+	{
+		std::cerr << e.what() << '\n';
+	}
+
+	Dispose();
+}
+
+//----------------------------------------------------------------------
+// ThreadRun
+//
+// This is run in a dedicated thread in server mode as soon as a
+// TCP connection is established. It will exchange RDMA connection
+// information over the given socket and then loop continously until
+// the client signals it is done or the "stop" flag is set by the
+// hdRDMA object.
+//----------------------------------------------------------------------
+void hdRDMAThread::TryThreadRun(SOCKET sockfd)
 {
 	// The first thing we send via TCP is a 3 byte message indicating
 	// success or failure. This really just allows us to inform the client
@@ -103,7 +164,7 @@ void hdRDMAThread::ThreadRun(int sockfd)
 	
 	// This bit of magic ensures that the sockfd is closed and our "stopped" 
 	// flag is set before leaving this method, even if early due to error.
-	std::shared_ptr<int> x(NULL, [&](int*){ close(sockfd);  stopped=true;});
+	std::shared_ptr<int> x(NULL, [&](int*){ closesocket(sockfd);  stopped=true;});
 	
 	// Get pool buffers (up to 4). If none are available then tell
 	// remote client we have too many RDMA connections.
@@ -112,7 +173,7 @@ void hdRDMAThread::ThreadRun(int sockfd)
 		// No buffers in MR available. Notify remote peer and exit thread
 		std::string mess("BD: RDMA server has no more MR buffers (too many connections)");
 		cerr << mess << endl;
-		write(sockfd, mess.c_str(), mess.length()+1);
+		send64(sockfd, mess.c_str(), mess.length()+1, 0);
 		return;
 	}
 
@@ -126,20 +187,20 @@ void hdRDMAThread::ThreadRun(int sockfd)
 	// errors in a separate thread if we wanted to guarantee that we were
 	// processing the data as fast as it is coming in. That adds some
 	// significant complication so we skip it for now.
-	int cq_size = buffers.size();
+	size_t cq_size = buffers.size();
 	comp_channel = ibv_create_comp_channel( hdrdma->ctx );
 	cq = ibv_create_cq( hdrdma->ctx, cq_size, NULL, comp_channel, 0);
 	if( !cq ){
 		std::stringstream ss;
 		ss << "BD: ERROR: Unable to create Completion Queue! errno=" << errno;
 		cerr << ss.str() << endl;
-		write(sockfd, ss.str().c_str(), ss.str().length()+1);
+		send64(sockfd, ss.str().c_str(), ss.str().length()+1, 0);
 		return;
 	}
 
 	// Tell remote peer we are ready to exchange QPInfo
 	std::string mess("OK:");
-	write(sockfd, mess.c_str(), mess.length());
+	send64(sockfd, mess.c_str(), mess.length(), 0);
 
 	// Exchange QP info over TCP socket so we can transmit via RDMA
 	try{
@@ -197,9 +258,9 @@ void hdRDMAThread::ThreadRun(int sockfd)
 			break; // exit thread
 		}
 		auto &buffer  = buffers[id];
-		auto buff     = std::get<0>(buffer);
+		auto buff     = buffer.Buffer;
 		//auto buff_len = std::get<1>(buffer);
-		BYTES_RECEIVED_TOT += wc.byte_len;
+		hdrdma->total_bytes_received += wc.byte_len;
 		ReceiveBuffer( buff, wc.byte_len ); //n.b. do NOT use buff_len here!
 		t_last_received = high_resolution_clock::now();
 
@@ -221,19 +282,19 @@ void hdRDMAThread::PostWR( int id )
 	//cout << "Posting WR for id: " << id << endl;
 
 	auto &buffer  = buffers[id];
-	auto buff     = std::get<0>(buffer);
-	auto buff_len = std::get<1>(buffer);
+	auto buff     = buffer.Buffer;
+	auto buff_len = buffer.BufferLen;
 
 	struct ibv_recv_wr wr;
 	struct ibv_sge sge;
-	bzero( &wr, sizeof(wr));
-	bzero( &sge, sizeof(sge));
+	memset( &wr, 0, sizeof(wr));
+	memset( &sge, 0, sizeof(sge));
 	wr.wr_id = id;
 	wr.sg_list = &sge;
 	wr.num_sge = 1;
 	sge.addr = (uint64_t)buff;
 	sge.length = buff_len;
-	sge.lkey = hdrdma->mr->lkey;
+	sge.lkey = buffer.MR->lkey;
 	auto ret = ibv_post_recv( qp, &wr, &bad_wr);
 	if( ret != 0 ){
 		cout << "ERROR: ibv_post_recv returned non zero value (" << ret << ")" << endl;
@@ -249,16 +310,13 @@ void hdRDMAThread::PostWR( int id )
 // QP to the RTS (Ready To Send) state and RTR (Ready to Receive)
 // state.
 //-------------------------------------------------------------
-void hdRDMAThread::ExchangeQPInfo( int sockfd )
+void hdRDMAThread::ExchangeQPInfo( SOCKET sockfd )
 {
-	int n;
+	size_t n;
 	struct QPInfo tmp_qp_info;
 	
 	// Create a new QP to use with the remote peer. 
 	CreateQP();
-	
-	// Create a work receive request for each MR buffer we have
-	for( uint32_t id=0; id<buffers.size(); id++ ) PostWR( id );
 
 	tmp_qp_info.lid       = htons(qpinfo.lid);
 	tmp_qp_info.qp_num    = htonl(qpinfo.qp_num);
@@ -267,7 +325,7 @@ void hdRDMAThread::ExchangeQPInfo( int sockfd )
 	// the same. This will be true if we're using the same executable.
    
 	//------ Send QPInfo ---------
-	n = write(sockfd, (char *)&tmp_qp_info, sizeof(struct QPInfo));
+	n = send64(sockfd, (char *)&tmp_qp_info, sizeof(struct QPInfo), 0);
 	if( n!= sizeof(struct QPInfo) ){
 		std::stringstream ss;
 		ss << "ERROR: Sending QPInfo! Tried sending " << sizeof(struct QPInfo) << " bytes but only " << n << " were sent!";
@@ -275,7 +333,7 @@ void hdRDMAThread::ExchangeQPInfo( int sockfd )
 	}
     
 	//------ Receive QPInfo ---------
-	n = read(sockfd, (char *)&tmp_qp_info, sizeof(struct QPInfo));
+	n = recv64(sockfd, (char *)&tmp_qp_info, sizeof(struct QPInfo), MSG_WAITALL);
 	if( n!= sizeof(struct QPInfo) ){
 		std::stringstream ss;
 		ss << "ERROR: Sending QPInfo! Tried reading " << sizeof(struct QPInfo) << " bytes but only " << n << " were read!!";
@@ -292,6 +350,9 @@ void hdRDMAThread::ExchangeQPInfo( int sockfd )
 	auto ret = SetToRTS();
 	if( ret != 0 ) cout << "ERROR: Unable to set QP to RTS state!" << endl;
 
+	// Create a work receive request for each MR buffer we have
+	for (uint32_t id = 0; id < buffers.size(); id++) PostWR(id);
+
 }
 
 //-------------------------------------------------------------
@@ -306,7 +367,7 @@ void hdRDMAThread::CreateQP(void)
 
 	// Set up attributes for creating a QP. 
 	struct ibv_qp_init_attr qp_init_attr;
-	bzero( &qp_init_attr, sizeof(qp_init_attr) );
+	memset( &qp_init_attr, 0, sizeof(qp_init_attr) );
 	qp_init_attr.send_cq = cq;
 	qp_init_attr.recv_cq = cq;
 	qp_init_attr.cap.max_send_wr  = 1;
@@ -341,7 +402,7 @@ int hdRDMAThread::SetToRTS(void)
 	/* change QP state to INIT */
 	{
 		struct ibv_qp_attr qp_attr;
-		bzero( &qp_attr, sizeof(qp_attr) );		
+		memset( &qp_attr, 0, sizeof(qp_attr) );		
 		qp_attr.qp_state        = IBV_QPS_INIT,
 		qp_attr.pkey_index      = 0,
 		qp_attr.port_num        = hdrdma->port_num,
@@ -362,7 +423,7 @@ int hdRDMAThread::SetToRTS(void)
 	/* Change QP state to RTR */
 	{
 		struct ibv_qp_attr  qp_attr;
-		bzero( &qp_attr, sizeof(qp_attr) );		
+		memset( &qp_attr, 0, sizeof(qp_attr) );		
 		qp_attr.qp_state           = IBV_QPS_RTR,
 		qp_attr.path_mtu           = IB_MTU,
 		qp_attr.dest_qp_num        = remote_qpinfo.qp_num,
@@ -389,7 +450,7 @@ int hdRDMAThread::SetToRTS(void)
 	/* Change QP state to RTS */
 	{
 		struct ibv_qp_attr  qp_attr;
-		bzero( &qp_attr, sizeof(qp_attr) );		
+		memset( &qp_attr, 0, sizeof(qp_attr) );		
 		qp_attr.qp_state      = IBV_QPS_RTS,
 		qp_attr.timeout       = 14,
 		qp_attr.retry_cnt     = 7,
@@ -424,10 +485,9 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 			if( ofs != nullptr ) {
 				cout << "ERROR: Received new file buffer while file " << ofilename << " already open!" << endl;
 				ofs->close();
-				delete ofs;
 				ofs = nullptr;
 			}
-			ofilename = (char*)&hi->payload;
+			ofilename = hdrdma->DecodePath((const char*)&hi->payload);
 			cout << "Receiving file: " << ofilename << endl;
 			
 			// Create parent directory path if specified by remote sender
@@ -437,7 +497,7 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 				if( pos != std::string::npos ) makePath( ofilename.substr(0, pos) );
 			}
 			
-			ofs = new std::ofstream( ofilename.c_str() );
+			ofs = std::make_unique<std::ofstream>(ofilename);
 			ofilesize = 0;
 			crcsum = adler32( 0L, Z_NULL, 0 );
 			calculate_checksum = (hi->flags & HI_CALCULATE_CHECKSUM); // optionally calculate checksum
@@ -475,7 +535,6 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 				duration<double> duration_io = duration_cast<duration<double>>(t_io_end-t_io_start);
 				delta_t_io += duration_io.count();
 				ofs->close();
-				delete ofs;
 				ofs = nullptr;
 			}
 //			auto t2 = high_resolution_clock::now();
@@ -525,11 +584,11 @@ void hdRDMAThread::ReceiveBuffer(uint8_t *buff, uint32_t buff_len)
 // via TCP to the server, but nothing will have been read/written
 // yet.
 //-------------------------------------------------------------
-void hdRDMAThread::ClientConnect( int sockfd )
+void hdRDMAThread::ClientConnect( SOCKET sockfd )
 {
 	// This bit of magic ensures that the sockfd is closed and our "stopped" 
 	// flag is set before leaving this method, even if early due to error.
-	std::shared_ptr<int> x(NULL, [&](int*){ close(sockfd);  stopped=true;});
+	std::shared_ptr<int> x(NULL, [&](int*){ closesocket(sockfd);  stopped=true;});
 
 	// Get pool buffers (all of them). If none are available then throw exception
 	hdrdma->GetBuffers( buffers );
@@ -561,12 +620,12 @@ void hdRDMAThread::ClientConnect( int sockfd )
 	// Read first 3 bytes from TCP socket to make sure the server is able to
 	// send us QPInfo.
 	char str[256];
-	bzero(str, 256); // status code does not include terminating null
-	auto n = read(sockfd, str, 3);
+	memset(str, 0, 256); // status code does not include terminating null
+	auto n = recv64(sockfd, str, 3, MSG_WAITALL);
 	if( n!= 3 ) throw Exception("ERROR: Unable to read 3 byte status code from TCP socket!" );
 
 	if( std::string(str) != "OK:" ){
-		auto n = read(sockfd, str, 256);
+		auto n = recv64(sockfd, str, 256, MSG_WAITALL);
 		if( n<=0 ) sprintf(str, "Unknown error status from server");
 		throw Exception( str );
 	}
@@ -581,11 +640,28 @@ void hdRDMAThread::ClientConnect( int sockfd )
 //-------------------------------------------------------------
 void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
 {
+	try
+	{
+		TrySendFile(srcfilename, dstfilename, delete_after_send, calculate_checksum, makeparentdirs);
+	}
+	catch(const std::exception& e)
+	{
+		std::cerr << e.what() << '\n';
+	}
+
+	Dispose();
+}
+
+//-------------------------------------------------------------
+// TrySendFile
+//-------------------------------------------------------------
+void hdRDMAThread::TrySendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send, bool calculate_checksum, bool makeparentdirs)
+{
 	// Open local file
 	std::ifstream ifs(srcfilename.c_str());
 	if( !ifs.is_open() ){
 		cerr <<"ERROR: Unable to open file \"" << srcfilename << "\"!" << endl;
-		exit(-40);
+		throw std::runtime_error("Couldn't open output file");
 	}
 	
 	// Get filesize
@@ -595,19 +671,17 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 	double filesize_GB = (double)filesize*1.0E-9;
 	
 	std::string mess = delete_after_send ? " - will be deleted after send":"";
-	cout << "Sending file: " << srcfilename << "-> (" << HDRDMA_REMOTE_ADDR << ":)" << dstfilename << "   (" << filesize_GB << " GB)" << mess << endl;
+	cout << "Sending file: " << srcfilename << "-> (" << hdrdma->remote_addr << ":)" << dstfilename << "   (" << filesize_GB << " GB)" << mess << endl;
 	
 	struct ibv_send_wr wr, *bad_wr = nullptr;
 	struct ibv_sge sge;
-	bzero( &wr, sizeof(wr) );
-	bzero( &sge, sizeof(sge) );
+	memset( &wr, 0, sizeof(wr) );
+	memset( &sge, 0, sizeof(sge) );
 	
 	wr.opcode = IBV_WR_SEND;
 	wr.sg_list = &sge;
 	wr.num_sge = 1;
 	wr.send_flags = IBV_SEND_SIGNALED,
-	
-	sge.lkey = hdrdma->mr->lkey;
 	
 	// Send buffers
 	crcsum = adler32( 0L, Z_NULL, 0 );
@@ -620,9 +694,10 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 	for(int i=0; i<1000; i++){ // if sending more than 1000 buffers something is wrong!
 		auto id = i%buffers.size();
 		auto &buffer  = buffers[id];
-		auto buff     = std::get<0>(buffer);
-		auto buff_len = std::get<1>(buffer);
+		auto buff     = buffer.Buffer;
+		auto buff_len = buffer.BufferLen;
 		sge.addr = (uint64_t)buff;
+		sge.lkey = buffer.MR->lkey;
 		HeaderInfo *hi = (HeaderInfo*)sge.addr;
 		hi->buff_type = 1; // buffer holds data for file transfer
 		hi->flags = 0x0;
@@ -634,7 +709,7 @@ void hdRDMAThread::SendFile(std::string srcfilename, std::string dstfilename, bo
 			hi->flags |= HI_FIRST_BUFFER; // first buffer of file
 			if( calculate_checksum ) hi->flags |= HI_CALCULATE_CHECKSUM; // tell remote server to calculate checksum
 			if( makeparentdirs     ) hi->flags |= HI_MAKE_PARENT_DIRS;   // tell remote server to make directory path if needed
-			sprintf( (char*)&hi->payload, dstfilename.c_str() );
+			sprintf( (char*)&hi->payload, "%s", dstfilename.c_str() );
 		}else{
 			hi->header_len = sizeof(*hi) - sizeof(hi->payload);
 		}
@@ -798,3 +873,32 @@ bool hdRDMAThread::makePath( const std::string &path )
 	}
 }
 
+//-------------------------------------------------------------
+// Dispose
+//-------------------------------------------------------------
+void hdRDMAThread::Dispose()
+{
+	// Put QP insto RESET state so it releases all outstanding work requests
+	if( qp!=nullptr ){
+		struct ibv_qp_attr qp_attr;
+		memset( &qp_attr, 0, sizeof(qp_attr) );		
+		qp_attr.qp_state = IBV_QPS_RESET;
+		ibv_modify_qp (qp, &qp_attr, IBV_QP_STATE);
+	}
+
+	// Delete all of our allocated objects
+	// n.b. order here matters! If the qp is destroyed after the
+	// comp_channel it will leave open a file descriptor pointing
+	// to [infinibandevent] that we have no way of closing!
+	if(           qp!=nullptr ) ibv_destroy_qp( qp );
+	if(           cq!=nullptr ) ibv_destroy_cq ( cq );
+	if( comp_channel!=nullptr ) ibv_destroy_comp_channel( comp_channel );
+
+	qp = nullptr;
+	cq = nullptr;
+	comp_channel = nullptr;
+	ofs = nullptr;
+
+	// Return MR buffers to pool
+	hdrdma->ReturnBuffers( buffers );
+}

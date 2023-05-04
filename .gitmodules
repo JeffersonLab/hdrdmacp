@@ -1,0 +1,3 @@
+[submodule "modules/libwinibverbs"]
+	path = modules/libwinibverbs
+	url = https://github.com/lucasz93/libwinibverbs

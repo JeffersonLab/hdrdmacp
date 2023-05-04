@@ -19,6 +19,20 @@
 
 class hdRDMA;
 
+#ifdef __GNUC__
+#define PACK( __Declaration__ ) __Declaration__ __attribute__((__packed__))
+#endif
+
+#ifdef _MSC_VER
+#define PACK( __Declaration__ ) __pragma( pack(push, 1) ) __Declaration__ __pragma( pack(pop))
+#endif
+
+#ifdef __GNUC__
+typedef int SOCKET;
+#define closesocket close
+#define INVALID_SOCKET -1
+#endif
+
 class hdRDMAThread{
 
 	public:
@@ -32,18 +46,18 @@ class hdRDMAThread{
 		}HeaderInfoFlag_t;
 
 		// Header info sent as first bytes of data packed
-		struct HeaderInfo {
+		PACK(struct HeaderInfo {
 			uint32_t header_len;
 			uint16_t buff_type;
 			uint16_t flags; // bit 0=first, 1=last
 			uint32_t payload;
-		}__attribute__ ((packed));
+		});
 
 		// Hold info of queue pair on one side of connection
-		struct QPInfo {
+		PACK(struct QPInfo {
 			uint16_t lid;
 			uint32_t qp_num;
-		}__attribute__ ((packed));
+		});
 		
 		class Exception:public std::exception{
 			public:
@@ -51,23 +65,33 @@ class hdRDMAThread{
 				const char* what(void) const noexcept { return mess.c_str(); }
 				std::string mess;
 		};
-		
-		typedef std::tuple<uint8_t*, uint32_t> bufferinfo;
 
+		struct bufferinfo
+		{
+			bufferinfo(uint8_t* buff, uint32_t buff_len, struct ibv_mr* mr) : Buffer(buff), BufferLen(buff_len), MR(mr) {}
+			uint8_t* Buffer = nullptr;
+			uint32_t BufferLen = 0;
+			struct ibv_mr* MR = nullptr;
+		};
+		
 	
 		hdRDMAThread(hdRDMA *hdrdma);
 		~hdRDMAThread();
 		
-		void ThreadRun(int sockfd);
+		void ThreadRun(SOCKET sockfd);
+		void TryThreadRun(SOCKET sockfd);
 		void PostWR( int id ); // id= index to buffers
-		void ExchangeQPInfo( int sockfd );
+		void ExchangeQPInfo( SOCKET sockfd );
 		void CreateQP(void);
 		int SetToRTS(void);
 		void ReceiveBuffer(uint8_t *buff, uint32_t buff_len);
-		void ClientConnect( int sockfd );
+		void ClientConnect( SOCKET sockfd );
 		void SendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false);
+		void TrySendFile(std::string srcfilename, std::string dstfilename, bool delete_after_send=false, bool calculate_checksum=false, bool makeparentdirs=false);
 		void PollCQ(void);
 		bool makePath( const std::string &path );
+
+		void Dispose();
 		
 		bool stop    = false; // Flag so thread can be told to stop
 		bool stopped = false; // Flag so thread can declare it has stopped
@@ -83,7 +107,7 @@ class hdRDMAThread{
 
 		QPInfo qpinfo;
 		QPInfo remote_qpinfo;
-		std::ofstream *ofs = nullptr;
+		std::unique_ptr<std::ofstream> ofs;
 		std::string ofilename;
 		uint64_t ofilesize = 0;
 		uint32_t crcsum;
