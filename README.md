@@ -11,10 +11,10 @@ To use it, just run one instance in server mode on the machine you want the file
 > hdrdmacp -s
 
 And run it in client mode on the machine you wish to transfer the file FROM, giving
-it the local file as the first argument and then the remote host+destination directory
+it the local file as the first argument and then the remote host+destination filename
 as the second:
 
-> hdrdmacp file.dat my.server.host:/path/to/dest/dir
+> hdrdmacp file.dat my.server.host:/path/to/dest/filename
 
 notes:
 
